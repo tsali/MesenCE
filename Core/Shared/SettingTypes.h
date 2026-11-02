@@ -276,7 +276,10 @@ enum class ControllerType
 	//WS
 	WsController,
 	WsControllerVertical,
-	Pcv2Controller
+	Pcv2Controller,
+
+	//NES Wi-Fi interface on controller port 2 (github.com/Armitage64/nesp32)
+	Nesp32
 };
 
 struct KeyMapping

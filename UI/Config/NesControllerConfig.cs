@@ -37,6 +37,7 @@ namespace Mesen.Config
 		public UInt16[]? VirtualBoyButtons { get; set; } = null;
 		public UInt16[]? KonamiHyperShotButtons { get; set; } = null;
 		public UInt16[]? ArkanoidButtons { get; set; } = null;
+		public UInt16[]? Nesp32Buttons { get; set; } = null;
 		public UInt16[]? ZapperButtons { get; set; } = null;
 		public UInt16[]? MouseButtons { get; set; } = null;
 		public UInt16[]? OekakidsButtons { get; set; } = null;
@@ -61,6 +62,7 @@ namespace Mesen.Config
 				ControllerType.KonamiHyperShot => KonamiHyperShotButtons,
 				ControllerType.FamicomArkanoidController => ArkanoidButtons,
 				ControllerType.NesArkanoidController => ArkanoidButtons,
+				ControllerType.Nesp32 => Nesp32Buttons,
 				ControllerType.FamicomZapper => ZapperButtons,
 				ControllerType.NesZapper => ZapperButtons,
 				ControllerType.SnesMouse => MouseButtons,
@@ -106,6 +108,7 @@ namespace Mesen.Config
 				ControllerType.SuborKeyboard => Enum.GetValues<NesSuborKeyboardButtons>().Select(val => new CustomKeyMapping(ResourceHelper.GetEnumText(val), buttonMappings, (int)val)).ToList(),
 				ControllerType.VbController => Enum.GetValues<NesVirtualBoyButtons>().Select(val => new CustomKeyMapping(ResourceHelper.GetEnumText(val), buttonMappings, (int)val)).ToList(),
 				ControllerType.KonamiHyperShot => Enum.GetValues<NesKonamiHyperShotButtons>().Select(val => new CustomKeyMapping(ResourceHelper.GetEnumText(val), buttonMappings, (int)val)).ToList(),
+				ControllerType.Nesp32 => Enum.GetValues<NesNesp32Buttons>().Select(val => new CustomKeyMapping(ResourceHelper.GetEnumText(val), buttonMappings, (int)val)).ToList(),
 				ControllerType.NesArkanoidController or ControllerType.FamicomArkanoidController => Enum.GetValues<NesArkanoidButtons>().Select(val => new CustomKeyMapping(ResourceHelper.GetEnumText(val), buttonMappings, (int)val)).ToList(),
 				ControllerType.NesZapper or ControllerType.FamicomZapper => Enum.GetValues<NesZapperButtons>().Select(val => new CustomKeyMapping(ResourceHelper.GetEnumText(val), buttonMappings, (int)val)).ToList(),
 				ControllerType.SnesMouse or ControllerType.SuborMouse => Enum.GetValues<GenericMouseButtons>().Select(val => new CustomKeyMapping(ResourceHelper.GetEnumText(val), buttonMappings, (int)val)).ToList(),
@@ -191,6 +194,10 @@ namespace Mesen.Config
 				case ControllerType.FamicomArkanoidController:
 				case ControllerType.NesArkanoidController:
 					ArkanoidButtons = new UInt16[1];
+					break;
+
+				case ControllerType.Nesp32:
+					Nesp32Buttons = new UInt16[2];
 					break;
 
 				case ControllerType.OekaKidsTablet:
@@ -417,6 +424,13 @@ namespace Mesen.Config
 						InputApi.GetKeyCode("Mouse Left")
 					};
 
+				case ControllerType.Nesp32:
+					//The NESP32 board's own two buttons
+					return new UInt16[2] {
+						InputApi.GetKeyCode("Insert"),
+						InputApi.GetKeyCode("Delete")
+					};
+
 				case ControllerType.FcnsController:
 				case ControllerType.SnesNttDataKeypad:
 					return new UInt16[15] {
@@ -471,6 +485,7 @@ namespace Mesen.Config
 					break;
 
 				case ControllerType.NesArkanoidController: ArkanoidButtons = GetDefaultCustomKeys(type, preset); break;
+				case ControllerType.Nesp32: Nesp32Buttons = GetDefaultCustomKeys(type, preset); break;
 				case ControllerType.FamicomArkanoidController: ArkanoidButtons = GetDefaultCustomKeys(type, preset); break;
 
 				case ControllerType.SuborMouse: MouseButtons = GetDefaultCustomKeys(type, preset); break;
@@ -511,6 +526,7 @@ namespace Mesen.Config
 	public enum NesJissenMahjongButtons { A, B, C, D, E, F, G, H, I, J, K, L, M, N, Select, Start, Kan, Pon, Chii, Riichi, Ron };
 	public enum NesKonamiHyperShotButtons { Player1Run, Player1Jump, Player2Run, Player2Jump };
 	public enum NesArkanoidButtons { Fire };
+	public enum NesNesp32Buttons { A, B };
 	public enum NesZapperButtons { Fire, AimOffscreen };
 	public enum NesOekakidsButtons { Click };
 	public enum NesBandaiMicrophoneButtons { A, B, Microphone };

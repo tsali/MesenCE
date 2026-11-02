@@ -95,7 +95,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qy
-          sudo apt-get install -qy libsdl2-dev ccache # The compilers are already installed on GitHub's runners.
+          sudo apt-get install -qy libsdl2-dev libcurl4-openssl-dev ccache # The compilers are already installed on GitHub's runners.
 
       - name: Setup CCache
         uses: ./.github/actions/setup-ccache-action
@@ -146,7 +146,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qy
-          sudo apt-get install -qy libsdl2-dev libfuse2 ccache # The compilers are already installed on GitHub's runners.
+          sudo apt-get install -qy libsdl2-dev libcurl4-openssl-dev libfuse2 ccache # The compilers are already installed on GitHub's runners.
 
       - name: Setup CCache
         uses: ./.github/actions/setup-ccache-action

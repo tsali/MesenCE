@@ -2032,6 +2032,7 @@ E
 			<Value ID="SnesMouse">SNES Mouse</Value>
 			<Value ID="SuborMouse">Subor Mouse</Value>
 			<Value ID="VbController">Virtual Boy Controller</Value>
+			<Value ID="Nesp32">NESP32 (Wi-Fi)</Value>
 
 			<Value ID="FourScore">Four Score (NES)</Value>
 			<Value ID="FamicomZapper">Zapper (Famicom)</Value>
@@ -2148,6 +2149,10 @@ E
 		</Enum>
 		<Enum ID="NesArkanoidButtons">
 			<Value ID="Fire">Fire</Value>
+		</Enum>
+		<Enum ID="NesNesp32Buttons">
+			<Value ID="A">NESP32 A (front)</Value>
+			<Value ID="B">NESP32 B (side)</Value>
 		</Enum>
 		<Enum ID="NesOekakidsButtons">
 			<Value ID="Click">Click</Value>

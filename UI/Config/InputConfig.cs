@@ -416,6 +416,9 @@ namespace Mesen.Config
 		WsController,
 		WsControllerVertical,
 		Pcv2Controller,
+
+		//NES Wi-Fi interface on controller port 2 (github.com/Armitage64/nesp32)
+		Nesp32,
 	}
 
 	public static class ControllerTypeExtensions
@@ -512,6 +515,7 @@ namespace Mesen.Config
 				case ControllerType.NesZapper:
 				case ControllerType.OekaKidsTablet:
 				case ControllerType.FamicomArkanoidController:
+				case ControllerType.Nesp32:
 				case ControllerType.NesArkanoidController:
 				case ControllerType.SuperScope:
 				case ControllerType.BandaiMicrophone:

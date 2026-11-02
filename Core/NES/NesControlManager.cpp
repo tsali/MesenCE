@@ -12,6 +12,7 @@
 #include "Shared/KeyManager.h"
 #include "Shared/SystemActionManager.h"
 #include "NES/Input/NesController.h"
+#include "NES/Input/Nesp32/Nesp32Device.h"
 #include "SNES/Input/SnesController.h"
 #include "SNES/Input/SnesMouse.h"
 #include "SNES/Input/SnesNttDataKeypad.h"
@@ -88,6 +89,7 @@ shared_ptr<BaseControlDevice> NesControlManager::CreateControllerDevice(Controll
 		}
 
 		case ControllerType::NesArkanoidController: device.reset(new ArkanoidController(_emu, type, port, keys)); break;
+		case ControllerType::Nesp32: device.reset(new Nesp32Device(_emu, port, keys)); break;
 		case ControllerType::SnesController: device.reset(new SnesController(_emu, port, keys)); break;
 		case ControllerType::SnesNttDataKeypad: device.reset(new SnesNttDataKeypad(_emu, port, keys)); break;
 

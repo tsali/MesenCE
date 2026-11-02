@@ -844,6 +844,96 @@
     <ClInclude Include="NES\HdPacks\OggReader.h">
       <Filter>NES\HdPacks</Filter>
     </ClInclude>
+    <ClInclude Include="NES\Input\Nesp32\Nesp32Device.h">
+      <Filter>NES\Input\Nesp32</Filter>
+    </ClInclude>
+    <ClInclude Include="NES\Input\Nesp32\Nesp32Fetcher.h">
+      <Filter>NES\Input\Nesp32</Filter>
+    </ClInclude>
+    <ClInclude Include="NES\Input\Nesp32\Nesp32Line.h">
+      <Filter>NES\Input\Nesp32</Filter>
+    </ClInclude>
+    <ClInclude Include="NES\Input\Nesp32\firmware\minimp3.h">
+      <Filter>NES\Input\Nesp32\firmware</Filter>
+    </ClInclude>
+    <ClInclude Include="NES\Input\Nesp32\firmware\nesp_core.h">
+      <Filter>NES\Input\Nesp32\firmware</Filter>
+    </ClInclude>
+    <ClInclude Include="NES\Input\Nesp32\firmware\nesp_mp3.h">
+      <Filter>NES\Input\Nesp32\firmware</Filter>
+    </ClInclude>
+    <ClInclude Include="NES\Input\Nesp32\firmware\nesp_proto.h">
+      <Filter>NES\Input\Nesp32\firmware</Filter>
+    </ClInclude>
+    <ClInclude Include="NES\Input\Nesp32\firmware\nesp_services.h">
+      <Filter>NES\Input\Nesp32\firmware</Filter>
+    </ClInclude>
+    <ClInclude Include="NES\Input\Nesp32\firmware\nesp_text.h">
+      <Filter>NES\Input\Nesp32\firmware</Filter>
+    </ClInclude>
+    <ClCompile Include="NES\Input\Nesp32\Nesp32Device.cpp">
+      <Filter>NES\Input\Nesp32</Filter>
+    </ClCompile>
+    <ClCompile Include="NES\Input\Nesp32\Nesp32Fetcher.cpp">
+      <Filter>NES\Input\Nesp32</Filter>
+    </ClCompile>
+    <ClCompile Include="NES\Input\Nesp32\firmware\arq.c">
+      <Filter>NES\Input\Nesp32\firmware</Filter>
+    </ClCompile>
+    <ClCompile Include="NES\Input\Nesp32\firmware\bsky.c">
+      <Filter>NES\Input\Nesp32\firmware</Filter>
+    </ClCompile>
+    <ClCompile Include="NES\Input\Nesp32\firmware\diag.c">
+      <Filter>NES\Input\Nesp32\firmware</Filter>
+    </ClCompile>
+    <ClCompile Include="NES\Input\Nesp32\firmware\juke.c">
+      <Filter>NES\Input\Nesp32\firmware</Filter>
+    </ClCompile>
+    <ClCompile Include="NES\Input\Nesp32\firmware\kbd.c">
+      <Filter>NES\Input\Nesp32\firmware</Filter>
+    </ClCompile>
+    <ClCompile Include="NES\Input\Nesp32\firmware\mp3.c">
+      <Filter>NES\Input\Nesp32\firmware</Filter>
+    </ClCompile>
+    <ClCompile Include="NES\Input\Nesp32\firmware\nesp_core.c">
+      <Filter>NES\Input\Nesp32\firmware</Filter>
+    </ClCompile>
+    <ClCompile Include="NES\Input\Nesp32\firmware\net.c">
+      <Filter>NES\Input\Nesp32\firmware</Filter>
+    </ClCompile>
+    <ClCompile Include="NES\Input\Nesp32\firmware\news.c">
+      <Filter>NES\Input\Nesp32\firmware</Filter>
+    </ClCompile>
+    <ClCompile Include="NES\Input\Nesp32\firmware\peer.c">
+      <Filter>NES\Input\Nesp32\firmware</Filter>
+    </ClCompile>
+    <ClCompile Include="NES\Input\Nesp32\firmware\radar.c">
+      <Filter>NES\Input\Nesp32\firmware</Filter>
+    </ClCompile>
+    <ClCompile Include="NES\Input\Nesp32\firmware\raw.c">
+      <Filter>NES\Input\Nesp32\firmware</Filter>
+    </ClCompile>
+    <ClCompile Include="NES\Input\Nesp32\firmware\stun.c">
+      <Filter>NES\Input\Nesp32\firmware</Filter>
+    </ClCompile>
+    <ClCompile Include="NES\Input\Nesp32\firmware\sys.c">
+      <Filter>NES\Input\Nesp32\firmware</Filter>
+    </ClCompile>
+    <ClCompile Include="NES\Input\Nesp32\firmware\text.c">
+      <Filter>NES\Input\Nesp32\firmware</Filter>
+    </ClCompile>
+    <ClCompile Include="NES\Input\Nesp32\firmware\tuner.c">
+      <Filter>NES\Input\Nesp32\firmware</Filter>
+    </ClCompile>
+    <ClCompile Include="NES\Input\Nesp32\firmware\vgm.c">
+      <Filter>NES\Input\Nesp32\firmware</Filter>
+    </ClCompile>
+    <ClCompile Include="NES\Input\Nesp32\firmware\weather.c">
+      <Filter>NES\Input\Nesp32\firmware</Filter>
+    </ClCompile>
+    <ClCompile Include="NES\Input\Nesp32\firmware\wiki.c">
+      <Filter>NES\Input\Nesp32\firmware</Filter>
+    </ClCompile>
     <ClInclude Include="NES\Input\ArkanoidController.h">
       <Filter>NES\Input</Filter>
     </ClInclude>
@@ -3412,6 +3502,12 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <Filter Include="NES\Input\Nesp32">
+      <UniqueIdentifier>{42b33c66-77f9-410d-93b2-bdbfd854fc45}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NES\Input\Nesp32\firmware">
+      <UniqueIdentifier>{5385079f-f388-4403-aafe-99fdcab8138e}</UniqueIdentifier>
+    </Filter>
     <Filter Include="PCE">
       <UniqueIdentifier>{f0c9479c-8c8b-4cf2-8810-2db6ec545b7b}</UniqueIdentifier>
     </Filter>

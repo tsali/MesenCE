@@ -63,7 +63,8 @@ namespace Mesen.ViewModels
 			ControllerType.SnesMouse,
 			ControllerType.SnesNttDataKeypad,
 			ControllerType.SuborMouse,
-			ControllerType.VbController
+			ControllerType.VbController,
+			ControllerType.Nesp32
 		};
 
 		public Enum[] AvailableControllerTypesFourPlayer => new Enum[] {

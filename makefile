@@ -25,6 +25,9 @@ endif
 LINKCHECKUNRESOLVED := -Wl,-z,defs
 
 LINKOPTIONS :=
+
+#NESP32 (Core/NES/Input/Nesp32): libcurl for its Internet fetches
+NESP32LIB := -lcurl -lm
 MESENOS :=
 
 ifeq ($(UNAME_S),Linux)
@@ -136,7 +139,8 @@ endif
 
 
 CORESRC := $(shell find Core -name '*.cpp')
-COREOBJ := $(CORESRC:.cpp=.o)
+CORECSRC := $(shell find Core -name '*.c')
+COREOBJ := $(CORESRC:.cpp=.o) $(CORECSRC:.c=.o)
 
 UTILSRC := $(shell find Utilities -name '*.cpp' -o -name '*.c')
 UTILOBJ := $(addsuffix .o,$(basename $(UTILSRC)))
@@ -218,7 +222,7 @@ pgohelper: InteropDLL/$(OBJFOLDER)/$(SHAREDLIB)
 InteropDLL/$(OBJFOLDER)/$(SHAREDLIB): $(SEVENZIPOBJ) $(LUAOBJ) $(UTILOBJ) $(COREOBJ) $(SDLOBJ) $(LIBEVDEVOBJ) $(LINUXOBJ) $(DLLOBJ) $(MACOSOBJ)
 	mkdir -p bin
 	mkdir -p InteropDLL/$(OBJFOLDER)
-	$(CXX) $(CXXFLAGS) $(LINKOPTIONS) $(LINKCHECKUNRESOLVED) -shared -o $(SHAREDLIB) $(DLLOBJ) $(SEVENZIPOBJ) $(LUAOBJ) $(LINUXOBJ) $(MACOSOBJ) $(LIBEVDEVOBJ) $(UTILOBJ) $(SDLOBJ) $(COREOBJ) -pthread $(FSLIB) $(LIBEVDEVLIB)
+	$(CXX) $(CXXFLAGS) $(LINKOPTIONS) $(LINKCHECKUNRESOLVED) -shared -o $(SHAREDLIB) $(DLLOBJ) $(SEVENZIPOBJ) $(LUAOBJ) $(LINUXOBJ) $(MACOSOBJ) $(LIBEVDEVOBJ) $(UTILOBJ) $(SDLOBJ) $(COREOBJ) -pthread $(FSLIB) $(LIBEVDEVLIB) $(NESP32LIB)
 	cp $(SHAREDLIB) bin/pgohelperlib.so
 	mv $(SHAREDLIB) InteropDLL/$(OBJFOLDER)
 
