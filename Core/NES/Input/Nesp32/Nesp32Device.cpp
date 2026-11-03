@@ -109,7 +109,8 @@ void Nesp32Device::SetupHal()
 }
 
 //A setting the console is never told, such as HARBOR's "aishub_key": from
-//the environment as NESP32_AISHUB_KEY, or else from <Mesen home>/Nesp32/settings.txt,
+//the environment as NESP32_AISHUB_KEY, or else from <Mesen home>/Nesp32/settings.txt
+//(or Nesp32/settings.txt in the folder Mesen was started from),
 //a line of name=value for each ('#' begins a comment).
 bool Nesp32Device::HalSetting(void* ctx, const char* name, char* out, size_t max)
 {
@@ -136,8 +137,13 @@ bool Nesp32Device::HalSetting(void* ctx, const char* name, char* out, size_t max
 	}
 #endif
 	if(!found) {
+		//Mesen's home folder first, then Nesp32/settings.txt beside wherever
+		//Mesen was started from (next to Mesen.exe, when it is double-clicked)
 		string path = FolderUtilities::CombinePath(FolderUtilities::CombinePath(FolderUtilities::GetHomeFolder(), "Nesp32"), "settings.txt");
 		std::ifstream in(path);
+		if(!in.is_open()) {
+			in.open(FolderUtilities::CombinePath("Nesp32", "settings.txt"));
+		}
 		string line;
 		while(std::getline(in, line)) {
 			size_t hash = line.find('#');
