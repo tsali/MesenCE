@@ -116,10 +116,21 @@ bool Nesp32Device::HalSetting(void* ctx, const char* name, char* out, size_t max
 	}
 	string value;
 	bool found = false;
+#ifdef _WIN32
+	char* env = nullptr;
+	size_t envLen = 0;
+	if(_dupenv_s(&env, &envLen, envName.c_str()) == 0 && env) {
+		value = env;
+		found = true;
+	}
+	free(env);
+#else
 	if(const char* env = getenv(envName.c_str())) {
 		value = env;
 		found = true;
-	} else {
+	}
+#endif
+	if(!found) {
 		string path = FolderUtilities::CombinePath(FolderUtilities::CombinePath(FolderUtilities::GetHomeFolder(), "Nesp32"), "settings.txt");
 		std::ifstream in(path);
 		string line;
