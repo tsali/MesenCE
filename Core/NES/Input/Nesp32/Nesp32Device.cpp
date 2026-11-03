@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <cstdlib>
+#include <fstream>
 #include "NES/Input/Nesp32/Nesp32Device.h"
 #include "Shared/Emulator.h"
 #include "Shared/MessageManager.h"
@@ -98,6 +100,54 @@ void Nesp32Device::SetupHal()
 	_hal.kbd_pair = nullptr;
 	_hal.kbd_forget = nullptr;
 	_hal.kbd_read = nullptr;
+	_hal.setting = HalSetting;
+}
+
+//A setting the console is never told, such as HARBOR's "aishub_key": from
+//the environment as NESP32_AISHUB_KEY, or else from <Mesen home>/Nesp32/settings.txt,
+//a line of name=value for each ('#' begins a comment).
+bool Nesp32Device::HalSetting(void* ctx, const char* name, char* out, size_t max)
+{
+	(void)ctx;
+	string key = name;
+	string envName = "NESP32_";
+	for(char c : key) {
+		envName += (char)toupper((unsigned char)c);
+	}
+	string value;
+	bool found = false;
+	if(const char* env = getenv(envName.c_str())) {
+		value = env;
+		found = true;
+	} else {
+		string path = FolderUtilities::CombinePath(FolderUtilities::CombinePath(FolderUtilities::GetHomeFolder(), "Nesp32"), "settings.txt");
+		std::ifstream in(path);
+		string line;
+		while(std::getline(in, line)) {
+			size_t hash = line.find('#');
+			if(hash != string::npos) {
+				line = line.substr(0, hash);
+			}
+			size_t eq = line.find('=');
+			if(eq == string::npos) {
+				continue;
+			}
+			auto trim = [](string s) {
+				size_t a = s.find_first_not_of(" \t\r\n");
+				size_t b = s.find_last_not_of(" \t\r\n");
+				return a == string::npos ? string() : s.substr(a, b - a + 1);
+			};
+			if(trim(line.substr(0, eq)) == key) {
+				value = trim(line.substr(eq + 1));
+				found = true;
+			}
+		}
+	}
+	if(!found || value.empty() || value.size() + 1 > max) {
+		return false;
+	}
+	memcpy(out, value.c_str(), value.size() + 1);
+	return true;
 }
 
 //The jukebox's files: <Mesen home>/Nesp32/tracks, in the order of their names

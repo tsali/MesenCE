@@ -11,6 +11,7 @@ rm -f "$DST"/*.c "$DST"/*.h
 cp "$SRC"/firmware/components/nesp_core/nesp_core.c "$DST"/
 cp "$SRC"/firmware/components/nesp_core/include/*.h "$DST"/
 cp "$SRC"/firmware/components/nesp_services/*.c "$DST"/
+cp "$SRC"/firmware/components/nesp_services/*.h "$DST"/ 2>/dev/null || true
 cp "$SRC"/firmware/components/nesp_services/include/*.h "$DST"/
 cp "$SRC"/build/nesp_proto.h "$DST"/
 cp "$SRC"/third_party/minimp3/minimp3.h "$DST"/

@@ -107,6 +107,7 @@ private:
 	static bool HalZipLast(void* ctx, char* zip, int32_t* latitude, int32_t* longitude, char* name);
 	static void HalZipKeep(void* ctx, const char* zip, int32_t latitude, int32_t longitude, const char* name);
 	static bool HalFavoritesLast(void* ctx, nesp_bsky_favorites_t* out);
+	static bool HalSetting(void* ctx, const char* name, char* out, size_t max);
 	static void HalFavoritesKeep(void* ctx, const nesp_bsky_favorites_t* favorites);
 
 protected:

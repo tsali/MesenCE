@@ -24,6 +24,10 @@
  * The clock is tick()'s, so the times are too: a fetch every
  * NESP_RADAR_POLL_MS while the console goes on asking, and a scene that is
  * stale when nothing good has come for NESP_RADAR_STALE_MS.
+ *
+ * HARBOR (harbor.c) is this service again with ships in place of aircraft:
+ * `ships` is set, the fetch is of AISHub, once a minute, with a key the
+ * board keeps, and the reply's vessels are read by harbor.c.
  */
 #include <math.h>
 #include <stdio.h>
@@ -31,12 +35,16 @@
 #include <string.h>
 
 #include "nesp_services.h"
+#include "scope.h"
 
-#define TARGETS NESP_RADAR_TARGETS_MAX
-#define MOTION NESP_RADAR_MOTION_LEN
-#define NAMES NESP_RADAR_NAMES_LEN
 #define AGENT "nesp32-radar/0.1 (NES Radar on a nesp32; +https://github.com/Armitage64/nesp32)"
 #define SOURCE "https://opendata.adsb.fi/api/v3"
+/* Where a US zip code is, for HARBOR, from the site WEATHER asks
+ * (weather.c): {"places": [{"latitude": "34.0901", "longitude":
+ * "-118.4065", ...}], ...}, and a 404 for one there is none of. */
+#define ZIP_WHERE "https://api.zippopotam.us/us/"
+#define NO_SUCH_ZIP "THE SITE SAID 404"
+#define HARBOR_AGENT "nesp32-harbor/0.1 (NES Radar, for ships, on a nesp32; +https://github.com/Armitage64/nesp32)"
 /* Where an airport is: Wikidata's item with these letters as its ICAO code
  * (P239), and that item's coordinates (P625). The query is
  *   SELECT ?p WHERE { ?a wdt:P239 "KSBA"; wdt:P625 ?p } LIMIT 1
@@ -46,26 +54,16 @@
 #define WHERE_END "%22%3B%20wdt%3AP625%20%3Fp%20%7D%20LIMIT%201"
 static const char point[] = "Point(";
 
-/* The scope: nine nautical miles to its edge, which is 71 points from its
- * middle at (72, 72). An aircraft slower than a landing one is on the
+/* The scope: nine nautical miles to its edge, which is EDGE (71) points
+ * from its MIDDLE at (72, 72). An aircraft slower than a landing one is on the
  * ground, whatever it says. */
 #define RANGE_NM 9.0
 #define ASKED_NM 10
 #define SLOWEST_KT 40.0
-#define MIDDLE 72
-#define EDGE 71.0
-#define LAST 143
-#define PI 3.14159265358979323846
-#define EARTH_NM (6371.0 * 0.539957)
-
-/* A motion record's first byte, with its slot. */
-#define NO_TRACK 0x08
-#define NO_ALTITUDE 0x10
-#define NO_SPEED 0x20
-#define NO_RATE 0x80                /* in place of a rate of climb */
 
 #define LANDED_WELL 1
 #define LANDED_BADLY 2
+#define LANDED_NONE 3               /* HARBOR: no place has that zip code */
 
 /* What is known of where the airport is. */
 #define PLACE_UNKNOWN 0             /* not asked yet, or being asked */
@@ -85,14 +83,6 @@ static void unlock(nesp_radar_t *radar)
 
 /* --- the fetch's task: one aircraft ------------------------------------------ */
 
-/* The value of one of an aircraft's names: its characters, less the quotes
- * of a string. */
-typedef struct {
-    const char *at;
-    size_t len;
-    bool string;
-} value_t;
-
 static bool is_space(char letter)
 {
     return letter == ' ' || (letter >= '\t' && letter <= '\r');
@@ -111,7 +101,7 @@ static size_t past_string(const char *item, size_t len, size_t at)
 
 /* What an aircraft has by this name, at its top: what is inside a list or
  * another object of its own is passed over. False if it has none, or null. */
-static bool member(const char *item, size_t len, const char *name, value_t *out)
+bool scope_member(const char *item, size_t len, const char *name, scope_value_t *out)
 {
     size_t name_len = strlen(name);
     size_t at = 1;                  /* past its brace */
@@ -175,11 +165,11 @@ static bool member(const char *item, size_t len, const char *name, value_t *out)
 }
 
 /* A number, or a string that is one. */
-static bool number(const char *item, size_t len, const char *name, double *out)
+bool scope_number(const char *item, size_t len, const char *name, double *out)
 {
-    value_t value;
+    scope_value_t value;
     char text[32];
-    if (!member(item, len, name, &value)) {
+    if (!scope_member(item, len, name, &value)) {
         return false;
     }
     while (value.len > 0 && is_space(value.at[0])) {
@@ -208,9 +198,9 @@ static bool number(const char *item, size_t len, const char *name, double *out)
 
 static bool is_text(const char *item, size_t len, const char *name, const char *text)
 {
-    value_t value;
+    scope_value_t value;
     size_t text_len = strlen(text);
-    if (!member(item, len, name, &value) || !value.string || value.len != text_len) {
+    if (!scope_member(item, len, name, &value) || !value.string || value.len != text_len) {
         return false;
     }
     for (size_t index = 0; index < text_len; index++) {
@@ -237,7 +227,7 @@ static int hex_digit(char letter)
 /* A value as a name on the scope: no spaces round it, capitals, a hyphen
  * for whatever the scope has no character for, cut to the width and padded
  * with spaces. A character that is not ASCII is one hyphen. */
-static void put_name(const value_t *value, uint8_t *out, size_t width)
+void scope_put_name(const scope_value_t *value, uint8_t *out, size_t width)
 {
     char text[64];
     size_t count = 0;
@@ -306,38 +296,101 @@ static void put_name(const value_t *value, uint8_t *out, size_t width)
 static void put_first(const char *item, size_t len, const char *const *names, size_t count,
                       uint8_t *out, size_t width)
 {
-    static const value_t none = {"----", 4, true};
-    value_t value;
+    static const scope_value_t none = {"----", 4, true};
+    scope_value_t value;
     for (size_t index = 0; index < count; index++) {
-        if (member(item, len, names[index], &value) && value.len > 0) {
-            put_name(&value, out, width);
+        if (scope_member(item, len, names[index], &value) && value.len > 0) {
+            scope_put_name(&value, out, width);
             return;
         }
     }
-    put_name(&none, out, width);
+    scope_put_name(&none, out, width);
 }
 
 static void put_one(const char *item, size_t len, const char *name, uint8_t *out, size_t width)
 {
-    static const value_t none = {"", 0, true};
-    value_t value;
-    put_name(member(item, len, name, &value) ? &value : &none, out, width);
+    static const scope_value_t none = {"", 0, true};
+    scope_value_t value;
+    scope_put_name(scope_member(item, len, name, &value) ? &value : &none, out, width);
 }
 
-static double radians(double degrees)
+double scope_radians(double degrees)
 {
     return degrees * (PI / 180.0);
 }
 
 /* To the nearest whole number, a half to the even one, and kept between
  * two. */
-static long rounded(double value, long least, long most)
+long scope_rounded(double value, long least, long most)
 {
     double whole = nearbyint(value);
     if (whole < (double)least) {
         return least;
     }
     return whole > (double)most ? most : (long)whole;
+}
+
+/* How far a place is from the airport, round the earth, in nautical miles,
+ * and which way, in degrees from north. */
+static double how_far(const nesp_radar_t *radar, double latitude, double longitude,
+                      double *bearing)
+{
+    double from = scope_radians(radar->here[0]);
+    double to = scope_radians(latitude);
+    double north = scope_radians(latitude - radar->here[0]);
+    double east = scope_radians(longitude - radar->here[1]);
+    double half = sin(north / 2) * sin(north / 2)
+                  + cos(from) * cos(to) * sin(east / 2) * sin(east / 2);
+    half = half < 0.0 ? 0.0 : half > 1.0 ? 1.0 : half;
+    *bearing = fmod(atan2(sin(east) * cos(to),
+                          cos(from) * sin(to) - sin(from) * cos(to) * cos(east))
+                    * (180.0 / PI) + 360.0, 360.0);
+    return EARTH_NM * 2 * atan2(sqrt(half), sqrt(1 - half));
+}
+
+/* x and y on the scope, whose edge is range_nm from its middle. */
+static void put_xy(uint8_t *motion, double distance, double bearing, double range_nm)
+{
+    double out = distance * (EDGE / range_nm);
+    out = out > EDGE ? EDGE : out;
+    motion[1] = (uint8_t)scope_rounded(MIDDLE + nearbyint(sin(scope_radians(bearing)) * out), 0, LAST);
+    motion[2] = (uint8_t)scope_rounded(MIDDLE - nearbyint(cos(scope_radians(bearing)) * out), 0, LAST);
+}
+
+/* A place on the earth, put on the scope if it is within range_nm of the
+ * airport and among the nearest so far: its target, in the order of their
+ * distance, with x, y and distance set and the rest of its motion zeros.
+ * NULL if it is not. The scope's edge is range_nm from its middle. */
+nesp_radar_target_t *scope_spot(nesp_radar_t *radar, double latitude, double longitude,
+                                double range_nm)
+{
+    double bearing;
+    double distance = how_far(radar, latitude, longitude, &bearing);
+    if (distance > range_nm) {
+        return NULL;
+    }
+    radar->total++;
+    size_t place = radar->near_count;
+    while (place > 0 && distance < radar->near[place - 1].distance) {
+        place--;
+    }
+    if (place >= TARGETS) {
+        return NULL;
+    }
+    size_t moved = (radar->near_count < TARGETS ? radar->near_count : TARGETS - 1) - place;
+    memmove(&radar->near[place + 1], &radar->near[place], moved * sizeof(radar->near[0]));
+    if (radar->near_count < TARGETS) {
+        radar->near_count++;
+    }
+    nesp_radar_target_t *target = &radar->near[place];
+    target->distance = distance;
+    target->latitude = latitude;
+    target->longitude = longitude;
+    uint8_t *motion = target->motion;
+    memset(motion, 0, MOTION);
+    put_xy(motion, distance, bearing, range_nm);
+    motion[8] = (uint8_t)scope_rounded(distance * 10, 0, 99);
+    return target;
 }
 
 /* One aircraft of the reply, whole. It is kept if it is flying, within
@@ -350,73 +403,40 @@ static void aircraft(nesp_radar_t *radar, const char *item, size_t len)
     if (is_text(item, len, "alt_baro", "ground")) {
         return;
     }
-    bool has_speed = number(item, len, "gs", &speed);
+    bool has_speed = scope_number(item, len, "gs", &speed);
     if (has_speed && speed < SLOWEST_KT) {
         return;
     }
-    if (!number(item, len, "lat", &latitude) || !number(item, len, "lon", &longitude)) {
+    if (!scope_number(item, len, "lat", &latitude) || !scope_number(item, len, "lon", &longitude)) {
         return;
     }
-    /* How far it is, round the earth, and which way, from north. */
-    double from = radians(radar->here[0]);
-    double to = radians(latitude);
-    double north = radians(latitude - radar->here[0]);
-    double east = radians(longitude - radar->here[1]);
-    double half = sin(north / 2) * sin(north / 2)
-                  + cos(from) * cos(to) * sin(east / 2) * sin(east / 2);
-    half = half < 0.0 ? 0.0 : half > 1.0 ? 1.0 : half;
-    double distance = EARTH_NM * 2 * atan2(sqrt(half), sqrt(1 - half));
-    if (distance > RANGE_NM) {
+    nesp_radar_target_t *target = scope_spot(radar, latitude, longitude, RANGE_NM);
+    if (target == NULL) {
         return;
     }
-    radar->total++;
-    size_t place = radar->near_count;
-    while (place > 0 && distance < radar->near[place - 1].distance) {
-        place--;
-    }
-    if (place >= TARGETS) {
-        return;
-    }
-    size_t moved = (radar->near_count < TARGETS ? radar->near_count : TARGETS - 1) - place;
-    memmove(&radar->near[place + 1], &radar->near[place], moved * sizeof(radar->near[0]));
-    if (radar->near_count < TARGETS) {
-        radar->near_count++;
-    }
-    nesp_radar_target_t *target = &radar->near[place];
-    target->distance = distance;
-
-    double bearing = fmod(atan2(sin(east) * cos(to),
-                                cos(from) * sin(to) - sin(from) * cos(to) * cos(east))
-                          * (180.0 / PI) + 360.0, 360.0);
-    double out = distance * (EDGE / RANGE_NM);
-    out = out > EDGE ? EDGE : out;
     uint8_t *motion = target->motion;
-    memset(motion, 0, MOTION);
-    motion[1] = (uint8_t)rounded(MIDDLE + nearbyint(sin(radians(bearing)) * out), 0, LAST);
-    motion[2] = (uint8_t)rounded(MIDDLE - nearbyint(cos(radians(bearing)) * out), 0, LAST);
-    if (number(item, len, "track", &value) || number(item, len, "true_heading", &value)) {
-        motion[3] = (uint8_t)((unsigned long)rounded(value * 256 / 360, -65536, 65536) & 0xFF);
+    if (scope_number(item, len, "track", &value) || scope_number(item, len, "true_heading", &value)) {
+        motion[3] = (uint8_t)((unsigned long)scope_rounded(value * 256 / 360, -65536, 65536) & 0xFF);
     } else {
         motion[0] |= NO_TRACK;
     }
-    if (number(item, len, "alt_baro", &value)) {
-        long hundreds = rounded(value / 100, 0, 65535);
+    if (scope_number(item, len, "alt_baro", &value)) {
+        long hundreds = scope_rounded(value / 100, 0, 65535);
         motion[4] = (uint8_t)hundreds;
         motion[5] = (uint8_t)(hundreds >> 8);
     } else {
         motion[0] |= NO_ALTITUDE;
     }
     if (has_speed) {
-        motion[6] = (uint8_t)rounded(speed, 0, 255);
+        motion[6] = (uint8_t)scope_rounded(speed, 0, 255);
     } else {
         motion[0] |= NO_SPEED;
     }
-    if (number(item, len, "baro_rate", &value) || number(item, len, "geom_rate", &value)) {
-        motion[7] = (uint8_t)(rounded(value / 100, -99, 99) & 0xFF);
+    if (scope_number(item, len, "baro_rate", &value) || scope_number(item, len, "geom_rate", &value)) {
+        motion[7] = (uint8_t)(scope_rounded(value / 100, -99, 99) & 0xFF);
     } else {
         motion[7] = NO_RATE;
     }
-    motion[8] = (uint8_t)rounded(distance * 10, 0, 99);
 
     uint8_t *names = target->names;
     put_first(item, len, calls, sizeof(calls) / sizeof(calls[0]), names + 1, 8);
@@ -430,12 +450,17 @@ static void aircraft(nesp_radar_t *radar, const char *item, size_t len)
 
 /* The reply is an object, and the aircraft are the objects in its list
  * named "ac". It is read a character at a time and never held whole: only
- * the aircraft being read is, and one too long for that is passed over. */
+ * the aircraft being read is, and one too long for that is passed over.
+ *
+ * HARBOR's, AISHub's, is a list: a header object, then a list whose
+ * objects are the ships. The header is read as a ship is. */
 static void take(nesp_radar_t *radar, const uint8_t *data, size_t len)
 {
+    bool vessels = radar->ships && !radar->lookup;   /* AISHub's reply */
+    bool zip = radar->ships && radar->lookup && radar->kind == NESP_PLACE_ZIP;  /* Zippopotam's */
     for (size_t index = 0; index < len; index++) {
         char letter = (char)data[index];
-        if (radar->lookup && !radar->spotted) {
+        if (radar->lookup && !zip && !radar->spotted) {
             /* The place is the first thing written as a point. */
             if (radar->matched < sizeof(point) - 1) {
                 radar->matched = letter == point[radar->matched] ? (uint8_t)(radar->matched + 1)
@@ -482,7 +507,18 @@ static void take(nesp_radar_t *radar, const uint8_t *data, size_t len)
         case '[':
         case '{':
             if (radar->depth == 0) {
-                radar->rooted = letter == '{';
+                radar->rooted = letter == (vessels ? '[' : '{');
+            } else if (vessels && radar->depth == 1) {
+                radar->listed = letter == '[';
+                if (letter == '{') {        /* the header */
+                    radar->taking = true;
+                    radar->long_item = false;
+                    radar->item_depth = 1;
+                    radar->item[0] = letter;
+                    radar->item_len = 1;
+                }
+            } else if (radar->depth == 1 && letter == '[' && zip) {
+                radar->listed = radar->key_len == 6 && memcmp(radar->key, "places", 6) == 0;
             } else if (radar->depth == 1 && letter == '[') {
                 radar->listed = (radar->key_len == 2 && memcmp(radar->key, "ac", 2) == 0)
                                 || (radar->key_len == 8
@@ -490,6 +526,7 @@ static void take(nesp_radar_t *radar, const uint8_t *data, size_t len)
             } else if (radar->depth == 2 && letter == '{' && radar->listed) {
                 radar->taking = true;
                 radar->long_item = false;
+                radar->item_depth = 2;
                 radar->item[0] = letter;
                 radar->item_len = 1;
             }
@@ -502,10 +539,18 @@ static void take(nesp_radar_t *radar, const uint8_t *data, size_t len)
             if (radar->depth > 0) {
                 radar->depth--;
             }
-            if (radar->depth == 2 && radar->taking) {
+            if (radar->taking && radar->depth == radar->item_depth) {
                 radar->taking = false;
-                if (!radar->long_item) {
+                if (radar->long_item) {
+                    /* passed over */
+                } else if (zip) {
+                    harbor_zip(radar, radar->item, radar->item_len);
+                } else if (!vessels) {
                     aircraft(radar, radar->item, radar->item_len);
+                } else if (radar->item_depth == 1) {
+                    harbor_header(radar, radar->item, radar->item_len);
+                } else {
+                    harbor_vessel(radar, radar->item, radar->item_len);
                 }
             } else if (radar->depth == 1) {
                 radar->listed = false;
@@ -549,6 +594,8 @@ static bool body(void *ctx, uint32_t id, const uint8_t *data, size_t len)
         radar->matched = 0;
         radar->spotted = false;
         radar->spot_len = 0;
+        radar->vouched = false;
+        radar->refused = false;
     }
     take(radar, data, len);
     return true;
@@ -557,11 +604,17 @@ static bool body(void *ctx, uint32_t id, const uint8_t *data, size_t len)
 static void done(void *ctx, uint32_t id, bool ok, const char *why)
 {
     nesp_radar_t *radar = ctx;
-    (void)why;
     bool well = ok && radar->parsing == id && radar->whole;
+    if (radar->ships && !radar->lookup) {
+        well = well && radar->vouched && !radar->refused;   /* AISHub said all was well */
+    }
+    /* Zippopotam has no such zip code: a 404, which the fetch gives as these
+     * words, as WEATHER has it. */
+    bool none = !ok && radar->ships && radar->lookup && radar->kind == NESP_PLACE_ZIP
+                && why != NULL && strcmp(why, NO_SUCH_ZIP) == 0;
     lock(radar);
     if (radar->generation == id) {
-        radar->landed = well ? LANDED_WELL : LANDED_BADLY;
+        radar->landed = well ? LANDED_WELL : none ? LANDED_NONE : LANDED_BADLY;
     }
     unlock(radar);
 }
@@ -589,6 +642,9 @@ static uint8_t state(const nesp_radar_t *radar)
     if (!radar->chosen) {
         return NESP_SCOPE_IDLE;
     }
+    if (radar->ships && !radar->keyed) {
+        return NESP_SCOPE_NO_KEY;
+    }
     if (radar->place == PLACE_NONE) {
         return NESP_SCOPE_NOT_FOUND;
     }
@@ -604,15 +660,32 @@ static uint8_t state(const nesp_radar_t *radar)
     return radar->place == PLACE_KNOWN ? NESP_SCOPE_WAITING : NESP_SCOPE_LOOKING;
 }
 
+/* The place chosen, for the nesp32's screen. */
+static void place_text(const nesp_radar_t *radar, char *out, size_t size)
+{
+    if (radar->kind == NESP_PLACE_ZIP) {
+        snprintf(out, size, "%.5s", (const char *)radar->named);
+    } else if (radar->kind == NESP_PLACE_POINT) {
+        snprintf(out, size, "%.2f,%.2f", radar->latitude / 1e6, radar->longitude / 1e6);
+    } else {
+        snprintf(out, size, "%.4s", radar->code);
+    }
+}
+
 static void show(nesp_radar_t *radar)
 {
-    char text[32];
-    if (!radar->chosen || radar->place != PLACE_KNOWN) {
+    char text[48];
+    char place[24];
+    place_text(radar, place, sizeof(place));
+    if (radar->chosen && radar->ships && !radar->keyed) {
+        snprintf(text, sizeof(text), "%s: no AISHub key", place);
+    } else if (!radar->chosen || radar->place != PLACE_KNOWN) {
         text[0] = 0;
     } else if (!radar->held) {
-        snprintf(text, sizeof(text), "%.4s", radar->code);
+        snprintf(text, sizeof(text), "%s", place);
     } else {
-        snprintf(text, sizeof(text), "%.4s: %u aircraft", radar->code, (unsigned)radar->count);
+        snprintf(text, sizeof(text), "%s: %u %s", place, (unsigned)radar->count,
+                 radar->ships ? "ships" : "aircraft");
     }
     radar->hal->show(radar->hal->ctx, 0, text);
 }
@@ -647,6 +720,8 @@ static void publish(nesp_radar_t *radar, bool well, uint32_t now_ms)
                 memcpy(radar->motion[slot], radar->near[slot].motion, MOTION);
                 radar->motion[slot][0] |= slot;
                 memcpy(names, radar->near[slot].names, NAMES);
+                radar->held_where[slot][0] = radar->near[slot].latitude;
+                radar->held_where[slot][1] = radar->near[slot].longitude;
             }
             names[0] = slot;
             renamed = renamed || memcmp(names, radar->names[slot], NAMES) != 0;
@@ -668,7 +743,8 @@ static void publish(nesp_radar_t *radar, bool well, uint32_t now_ms)
             radar->names_serial = next(radar->names_serial);
         }
         radar->flags = (uint8_t)((radar->flags & NESP_SCENE_TRUNCATED) | NESP_SCENE_DOWN);
-        if (!radar->good || now_ms - radar->good_at >= NESP_RADAR_STALE_MS) {
+        uint32_t stale_ms = radar->ships ? NESP_HARBOR_STALE_MS : NESP_RADAR_STALE_MS;
+        if (!radar->good || now_ms - radar->good_at >= stale_ms) {
             radar->flags |= NESP_SCENE_STALE;
         }
     }
@@ -688,19 +764,33 @@ static bool begin(nesp_radar_t *radar, const char *url, bool lookup)
     unlock(radar);
     radar->lookup = lookup;         /* nothing is being read: the last fetch has landed */
     radar->fetching = online(radar)
-                      && radar->hal->fetch(radar->hal->ctx, url, AGENT, id, &radar->sink);
+                      && radar->hal->fetch(radar->hal->ctx, url,
+                                           radar->ships ? HARBOR_AGENT : AGENT, id, &radar->sink);
     return radar->fetching;
 }
 
 static void fetch(nesp_radar_t *radar, uint32_t now_ms)
 {
-    char url[128];
+    char url[256];
     radar->fetched = true;
     radar->fetch_at = now_ms;
     radar->here[0] = radar->latitude / 1e6;
     radar->here[1] = radar->longitude / 1e6;
-    snprintf(url, sizeof(url), SOURCE "/lat/%.6f/lon/%.6f/dist/%d", radar->here[0],
-             radar->here[1], ASKED_NM);
+    if (radar->ships) {
+        if (!harbor_key(radar)) {
+            show(radar);
+            return;                 /* NO_KEY: nothing to ask with */
+        }
+        harbor_url(radar, url, sizeof(url));
+        /* AISHub counts a request it refuses, so this is the minute's. */
+        if (online(radar)) {
+            radar->sent = true;
+            radar->sent_at = now_ms;
+        }
+    } else {
+        snprintf(url, sizeof(url), SOURCE "/lat/%.6f/lon/%.6f/dist/%d", radar->here[0],
+                 radar->here[1], ASKED_NM);
+    }
     if (!begin(radar, url, false)) {
         publish(radar, false, now_ms);
     }
@@ -710,6 +800,13 @@ static void fetch(nesp_radar_t *radar, uint32_t now_ms)
 static void look(nesp_radar_t *radar)
 {
     char url[sizeof(WHERE) + 4 + sizeof(WHERE_END)];
+    if (radar->kind == NESP_PLACE_ZIP) {
+        snprintf(url, sizeof(url), ZIP_WHERE "%.5s", (const char *)radar->named);
+        if (!begin(radar, url, true)) {
+            radar->place = PLACE_FAILED;
+        }
+        return;
+    }
     memcpy(url, WHERE, sizeof(WHERE) - 1);
     memcpy(url + sizeof(WHERE) - 1, radar->code, 4);
     memcpy(url + sizeof(WHERE) + 3, WHERE_END, sizeof(WHERE_END));
@@ -720,11 +817,26 @@ static void look(nesp_radar_t *radar)
 
 /* The asking has ended: the place it brought, if it brought one that is a
  * place on the earth. A whole answer with none is no such airport. */
-static void located(nesp_radar_t *radar, bool well)
+/* HARBOR: this place, as it was chosen, is the last found. */
+static void remember(nesp_radar_t *radar)
+{
+    radar->found = true;
+    radar->found_kind = radar->kind;
+    memcpy(radar->found_named, radar->named, sizeof(radar->named));
+    radar->found_range = radar->range;
+    radar->found_latitude = radar->latitude;
+    radar->found_longitude = radar->longitude;
+}
+
+static void located(nesp_radar_t *radar, uint8_t landed)
 {
     double east, north;
     char *end;
-    if (!well) {
+    if (landed == LANDED_NONE) {
+        radar->place = PLACE_NONE;
+        return;
+    }
+    if (landed != LANDED_WELL) {
         radar->place = PLACE_FAILED;
         return;
     }
@@ -745,6 +857,13 @@ static void located(nesp_radar_t *radar, bool well)
     radar->latitude = (int32_t)nearbyint(north * 1e6);
     radar->longitude = (int32_t)nearbyint(east * 1e6);
     radar->place = PLACE_KNOWN;
+    if (radar->ships) {
+        remember(radar);
+    }
+    if (radar->kind != NESP_PLACE_AIRPORT) {
+        show(radar);
+        return;
+    }
     if (!radar->known || memcmp(radar->known_code, radar->code, 4) != 0
         || radar->known_latitude != radar->latitude
         || radar->known_longitude != radar->longitude) {
@@ -781,7 +900,7 @@ static bool tick(void *ctx, uint32_t now_ms)
         }
         radar->fetching = false;
         if (radar->lookup) {
-            located(radar, landed == LANDED_WELL);
+            located(radar, landed);
         } else {
             publish(radar, landed == LANDED_WELL, now_ms);
         }
@@ -789,42 +908,182 @@ static bool tick(void *ctx, uint32_t now_ms)
     if (now_ms - radar->asked_at >= NESP_RADAR_UNASKED_MS) {
         return false;               /* nobody is looking */
     }
+    if (radar->ships && !radar->keyed) {
+        return false;               /* NO_KEY: until AIRPORT finds one */
+    }
     if (radar->place == PLACE_UNKNOWN) {
         if (online(radar)) {
             look(radar);
         }
-    } else if (radar->place == PLACE_KNOWN
-               && (!radar->fetched || now_ms - radar->fetch_at >= NESP_RADAR_POLL_MS)) {
-        fetch(radar, now_ms);
+    } else if (radar->place == PLACE_KNOWN) {
+        bool due;
+        if (radar->ships) {
+            /* AISHub's minute is the nesp32's, whatever airport the last
+             * request was for. */
+            due = !radar->sent || now_ms - radar->sent_at >= NESP_HARBOR_POLL_MS;
+        } else {
+            due = !radar->fetched || now_ms - radar->fetch_at >= NESP_RADAR_POLL_MS;
+        }
+        if (due) {
+            fetch(radar, now_ms);
+        }
     }
     return false;
 }
 
+static size_t named_len(uint8_t kind)
+{
+    return kind == NESP_PLACE_AIRPORT ? 4 : kind == NESP_PLACE_ZIP ? 5 : kind == NESP_PLACE_POINT ? 8 : 0;
+}
+
+static int32_t le32(const uint8_t *bytes)
+{
+    return (int32_t)((uint32_t)bytes[0] | (uint32_t)bytes[1] << 8 | (uint32_t)bytes[2] << 16
+                     | (uint32_t)bytes[3] << 24);
+}
+
+/* The place a request names: RADAR's ID, LETTERS[4]; or HARBOR's ID, KIND,
+ * the place, and a RANGE or not, or RADAR's again, which is an airport at
+ * the range HARBOR has unless it is told. False: it is not one. */
+static bool chosen_place(const nesp_radar_t *radar, const nesp_request_t *request,
+                         uint8_t *kind, uint8_t *named, uint8_t *range)
+{
+    const uint8_t *data = request->data;
+    size_t len = request->len;
+    memset(named, 0, 8);
+    *kind = NESP_PLACE_AIRPORT;
+    *range = 0;
+    if (len == 5 && data[1] >= 'A' && data[1] <= 'Z') {
+        memcpy(named, data + 1, 4);
+    } else {
+        if (!radar->ships || len < 2) {
+            return false;
+        }
+        *kind = data[1];
+        size_t count = named_len(*kind);
+        if (count == 0 || (len != 2 + count && len != 3 + count)) {
+            return false;
+        }
+        memcpy(named, data + 2, count);
+        *range = len == 3 + count ? data[2 + count] : 0;
+        if (*range > NESP_HARBOR_RANGE_MAX) {
+            return false;
+        }
+    }
+    for (size_t index = 0; index < named_len(*kind); index++) {
+        if (*kind == NESP_PLACE_AIRPORT && (named[index] < 'A' || named[index] > 'Z')) {
+            return false;
+        }
+        if (*kind == NESP_PLACE_ZIP && (named[index] < '0' || named[index] > '9')) {
+            return false;
+        }
+    }
+    if (*kind == NESP_PLACE_POINT) {
+        int32_t latitude = le32(named), longitude = le32(named + 4);
+        if (latitude < -90000000 || latitude > 90000000 || longitude < -180000000
+            || longitude > 180000000) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* HARBOR: the place is the same, and the range is not. The scene held is
+ * drawn again to it at once, less the ships beyond it; ships that were
+ * beyond the last come with the next fetch. */
+static void zoom(nesp_radar_t *radar)
+{
+    if (!radar->held) {
+        return;
+    }
+    uint8_t motion[TARGETS][MOTION];
+    uint8_t names[TARGETS][NAMES];
+    double where[TARGETS][3];
+    uint8_t count = 0;
+    for (uint8_t slot = 0; slot < radar->count; slot++) {
+        double bearing;
+        double distance = how_far(radar, radar->held_where[slot][0], radar->held_where[slot][1],
+                                  &bearing);
+        if (distance > radar->range_nm) {
+            continue;
+        }
+        memcpy(motion[count], radar->motion[slot], MOTION);
+        motion[count][0] = (uint8_t)((motion[count][0] & ~7u) | count);
+        put_xy(motion[count], distance, bearing, radar->range_nm);
+        memcpy(names[count], radar->names[slot], NAMES);
+        names[count][0] = count;
+        memcpy(where[count], radar->held_where[slot], sizeof(where[0]));
+        count++;
+    }
+    for (uint8_t slot = count; slot < TARGETS; slot++) {
+        memset(names[slot], ' ', NAMES);
+        names[slot][0] = slot;
+    }
+    if (memcmp(names, radar->names, sizeof(names)) != 0) {
+        memcpy(radar->names, names, sizeof(names));
+        radar->names_serial = next(radar->names_serial);
+    }
+    memcpy(radar->motion, motion, (size_t)count * MOTION);
+    memcpy(radar->held_where, where, (size_t)count * sizeof(where[0]));
+    radar->count = count;
+    radar->serial = next(radar->serial);
+    show(radar);
+}
+
 static void airport(nesp_radar_t *radar, const nesp_request_t *request, nesp_reply_t *reply)
 {
-    if (request->len != 5) {
+    uint8_t kind, named[8], range;
+    if (!chosen_place(radar, request, &kind, named, &range)) {
         reply->status = NESP_ST_BAD_ARG;
         return;
     }
-    const uint8_t *code = request->data + 1;
-    for (size_t index = 0; index < 4; index++) {
-        if (code[index] < 'A' || code[index] > 'Z') {
-            reply->status = NESP_ST_BAD_ARG;
-            return;
-        }
+    bool was_keyed = radar->keyed;
+    if (radar->ships) {
+        harbor_key(radar);          /* asked each time: it may have been set since */
     }
-    if (!radar->chosen || radar->airport_id != request->data[0]
-        || memcmp(radar->code, code, 4) != 0) {
+    bool same = radar->chosen && radar->kind == kind && memcmp(radar->named, named, 8) == 0;
+    if (same && radar->range != range) {
+        radar->airport_id = request->data[0];
+        radar->range = range;
+        radar->range_nm = range != 0 ? range : NESP_HARBOR_RANGE_NM;
+        if (radar->place == PLACE_KNOWN) {
+            remember(radar);
+        }
+        zoom(radar);
+    } else if (!same || radar->airport_id != request->data[0]) {
         drop(radar);
         radar->chosen = true;
         radar->airport_id = request->data[0];
-        memcpy(radar->code, code, 4);
+        radar->kind = kind;
+        memcpy(radar->named, named, 8);
+        radar->range = range;
+        radar->range_nm = !radar->ships ? RANGE_NM : range != 0 ? range : NESP_HARBOR_RANGE_NM;
+        if (kind == NESP_PLACE_AIRPORT) {
+            memcpy(radar->code, named, 4);
+        }
         radar->place = PLACE_UNKNOWN;
-        if (radar->known && memcmp(radar->known_code, code, 4) == 0) {
+        if (kind == NESP_PLACE_POINT) {
+            radar->latitude = le32(named);
+            radar->longitude = le32(named + 4);
+            radar->place = PLACE_KNOWN;
+            remember(radar);
+        } else if (radar->ships && radar->found && radar->found_kind == kind
+                   && memcmp(radar->found_named, named, 8) == 0) {
+            radar->latitude = radar->found_latitude;
+            radar->longitude = radar->found_longitude;
+            radar->place = PLACE_KNOWN;
+            remember(radar);
+        } else if (kind == NESP_PLACE_AIRPORT && radar->known
+                   && memcmp(radar->known_code, named, 4) == 0) {
             radar->latitude = radar->known_latitude;
             radar->longitude = radar->known_longitude;
             radar->place = PLACE_KNOWN;
+            if (radar->ships) {
+                remember(radar);
+            }
         }
+        show(radar);
+    } else if (radar->keyed != was_keyed) {
         show(radar);
     }
     radar->asked = true;
@@ -896,7 +1155,19 @@ static void last(nesp_radar_t *radar, const nesp_request_t *request, nesp_reply_
         reply->status = NESP_ST_BAD_ARG;
         return;
     }
-    if (radar->known) {
+    if (radar->ships && radar->found) {
+        /* HARBOR: KIND, the place and RANGE, as PLACE takes them after its ID. */
+        size_t count = named_len(radar->found_kind);
+        reply->data[0] = radar->found_kind;
+        memcpy(reply->data + 1, radar->found_named, count);
+        reply->data[1 + count] = radar->found_range;
+        reply->len = (uint8_t)(2 + count);
+    } else if (radar->ships && radar->known) {
+        reply->data[0] = NESP_PLACE_AIRPORT;
+        memcpy(reply->data + 1, radar->known_code, 4);
+        reply->data[5] = 0;
+        reply->len = 6;
+    } else if (radar->known) {
         memcpy(reply->data, radar->known_code, 4);
         reply->len = 4;
     }
@@ -949,19 +1220,26 @@ static void deactivate(void *ctx)
     radar->hal->show(radar->hal->ctx, 0, "");
 }
 
-void nesp_radar_service(nesp_service_t *service, nesp_radar_t *radar, const nesp_hal_t *hal)
+void scope_service(nesp_service_t *service, nesp_radar_t *radar, const nesp_hal_t *hal,
+                   bool ships)
 {
     memset(radar, 0, sizeof(*radar));
     radar->hal = hal;
+    radar->ships = ships;
     radar->sink.ctx = radar;
     radar->sink.body = body;
     radar->sink.done = done;
     memset(service, 0, sizeof(*service));
-    service->id = NESP_SVC_RADAR;
-    service->name = "RADAR";
+    service->id = ships ? NESP_SVC_HARBOR : NESP_SVC_RADAR;
+    service->name = ships ? "HARBOR" : "RADAR";
     service->activate = activate;
     service->deactivate = deactivate;
     service->handle = handle;
     service->tick = tick;
     service->ctx = radar;
+}
+
+void nesp_radar_service(nesp_service_t *service, nesp_radar_t *radar, const nesp_hal_t *hal)
+{
+    scope_service(service, radar, hal, false);
 }

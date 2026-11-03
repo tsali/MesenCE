@@ -111,6 +111,11 @@
 #define NESP_BSKY_REMOVE             0x02
 #define NESP_BSKY_FEED               0x03
 #define NESP_BSKY_LINE               0x04
+#define NESP_SVC_HARBOR              0x16
+#define NESP_HARBOR_PLACE            0x00
+#define NESP_HARBOR_SCENE            0x01
+#define NESP_HARBOR_IDENTITY         0x02
+#define NESP_HARBOR_LAST             0x03
 #define NESP_WIFI_NONE               0x00
 #define NESP_WIFI_IDLE               0x01
 #define NESP_WIFI_JOINING            0x02
@@ -143,6 +148,10 @@
 #define NESP_SCOPE_READY             0x04
 #define NESP_SCOPE_LOOKING           0x05
 #define NESP_SCOPE_NO_LOOKUP         0x06
+#define NESP_SCOPE_NO_KEY            0x07
+#define NESP_PLACE_AIRPORT           0x00
+#define NESP_PLACE_ZIP               0x01
+#define NESP_PLACE_POINT             0x02
 #define NESP_SCENE_STALE             0x01
 #define NESP_SCENE_TRUNCATED         0x02
 #define NESP_SCENE_DOWN              0x04
@@ -306,6 +315,11 @@
 #define NESP_RADAR_POLL_MS           8000
 #define NESP_RADAR_STALE_MS          30000
 #define NESP_RADAR_UNASKED_MS        30000
+#define NESP_HARBOR_POLL_MS          60000
+#define NESP_HARBOR_STALE_MS         180000
+#define NESP_HARBOR_RANGE_NM         0x14
+#define NESP_HARBOR_RANGE_MAX        60
+#define NESP_HARBOR_KEY_MAX          64
 #define NESP_WEATHER_ROWS            0x0D
 #define NESP_WEATHER_COLUMNS         28
 #define NESP_WEATHER_ZIP_LEN         5

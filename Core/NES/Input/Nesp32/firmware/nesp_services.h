@@ -238,6 +238,11 @@ typedef struct {
     /* What has been typed, oldest first: printable ASCII and NESP_KEY_*.
      * Returns how many, up to max; they are gone from the nesp32 then. */
     size_t (*kbd_read)(void *ctx, uint8_t *out, size_t max);
+    /* May be NULL: a board that keeps no settings. A setting the console
+     * is never told, by its name ("aishub_key": HARBOR's AISHub username),
+     * written to out with a 0 after it, max counting the 0. False: it is not
+     * set, or does not fit. */
+    bool (*setting)(void *ctx, const char *name, char *out, size_t max);
 } nesp_hal_t;
 
 /* A stream of bytes over datagrams (arq.c): what a port needs to carry
@@ -379,6 +384,8 @@ typedef struct {
 
 typedef struct {
     double distance;                /* nautical miles from the airport */
+    double latitude;                /* where it is, in degrees */
+    double longitude;
     uint8_t motion[NESP_RADAR_MOTION_LEN];  /* its slot not yet in it */
     uint8_t names[NESP_RADAR_NAMES_LEN];    /* nor here */
 } nesp_radar_target_t;
@@ -445,7 +452,32 @@ typedef struct {
     uint16_t total;                 /* aircraft within range */
     uint8_t near_count;
     nesp_radar_target_t near[NESP_RADAR_TARGETS_MAX];
+    /* HARBOR's alone (harbor.c): the same scope, with ships from AISHub. */
+    bool ships;                     /* this is HARBOR */
+    uint8_t kind;                   /* how the place chosen is named (NESP_PLACE_*) */
+    uint8_t named[8];               /* its letters, its digits, or where it is */
+    uint8_t range;                  /* as PLACE gave it: 0 for NESP_HARBOR_RANGE_NM */
+    double range_nm;                /* and as the scope has it */
+    /* The last place found, which is not asked after twice. */
+    bool found;
+    uint8_t found_kind;
+    uint8_t found_named[8];
+    uint8_t found_range;
+    int32_t found_latitude;
+    int32_t found_longitude;
+    /* Where the ships of the scene held are, for a new range. */
+    double held_where[NESP_RADAR_TARGETS_MAX][3];  /* latitude, longitude, distance */
+    bool keyed;                     /* the board has an AISHub key, which is key_text */
+    char key_text[NESP_HARBOR_KEY_MAX + 1];
+    bool sent;                      /* a request has gone to AISHub, at sent_at: one a */
+    uint32_t sent_at;               /* minute at most, whatever airport it was for */
+    bool vouched;                   /* the fetch's task: the reply's header said no error */
+    bool refused;                   /* and this: it said there was one */
 } nesp_radar_t;
+
+/* HARBOR: the ships round an airport, for a NES Radar that shows ships
+ * (harbor.c). It is RADAR with another source, so it is RADAR's struct. */
+typedef nesp_radar_t nesp_harbor_t;
 
 /* WEATHER: the weather at a zip code, laid out as rows for a console's
  * screen (weather.c). */
@@ -828,7 +860,8 @@ typedef struct {
     nesp_weather_t weather;
     nesp_bsky_t bsky;
     nesp_kbd_t kbd;
-    nesp_service_t services[12];
+    nesp_harbor_t harbor;
+    nesp_service_t services[13];
 } nesp_stick_t;
 
 void nesp_stick_init(nesp_stick_t *stick, const nesp_hal_t *hal);
@@ -863,6 +896,7 @@ void nesp_peer_service(nesp_service_t *service, nesp_peer_t *peer, const nesp_sy
                        const nesp_hal_t *hal);
 
 void nesp_radar_service(nesp_service_t *service, nesp_radar_t *radar, const nesp_hal_t *hal);
+void nesp_harbor_service(nesp_service_t *service, nesp_harbor_t *harbor, const nesp_hal_t *hal);
 void nesp_tuner_service(nesp_service_t *service, nesp_tuner_t *tuner, nesp_raw_t *raw,
                         const nesp_hal_t *hal);
 void nesp_weather_service(nesp_service_t *service, nesp_weather_t *weather,
