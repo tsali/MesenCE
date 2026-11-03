@@ -44,6 +44,9 @@ bool scope_number(const char *item, size_t len, const char *name, double *out);
 /* A value as a name on the scope: capitals, digits, spaces and hyphens, cut
  * to the width and padded with spaces. */
 void scope_put_name(const scope_value_t *value, uint8_t *out, size_t width);
+/* And as a line of a ship's card: the same, with + . / : besides, and a
+ * space for whatever it has no character for. */
+void scope_put_text(const scope_value_t *value, uint8_t *out, size_t width);
 double scope_radians(double degrees);
 long scope_rounded(double value, long least, long most);
 /* A place put on the scope among the nearest (radar.c). */
@@ -55,6 +58,10 @@ void harbor_header(nesp_radar_t *radar, const char *item, size_t len);
 void harbor_vessel(nesp_radar_t *radar, const char *item, size_t len);
 void harbor_zip(nesp_radar_t *radar, const char *item, size_t len);
 bool harbor_key(nesp_radar_t *radar);
+/* A line of a ship's card, NESP_HARBOR_DETAIL_WIDTH characters, at a time
+ * in seconds since 1970 if the clock is known. */
+void harbor_card(const nesp_harbor_ship_t *ship, double latitude, double longitude,
+                 uint8_t line, bool timed, uint32_t now, uint8_t *out);
 void harbor_url(const nesp_radar_t *radar, char *url, size_t size);
 /* HARBOR's map (harbor.c): planned on the link's task, the tiles read on
  * the fetch's, and the codes made on the link's when all have come. */

@@ -229,10 +229,26 @@ static int hex_digit(char letter)
     return letter >= 'a' && letter <= 'f' ? letter - 'a' + 10 : -1;
 }
 
-/* A value as a name on the scope: no spaces round it, capitals, a hyphen
- * for whatever the scope has no character for, cut to the width and padded
- * with spaces. A character that is not ASCII is one hyphen. */
-void scope_put_name(const scope_value_t *value, uint8_t *out, size_t width)
+/* A character as the scope shows it, or a ship's card: capitals, and a
+ * hyphen on the scope, or a space on a card, for one it has not. */
+static char shown_as(char letter, bool card)
+{
+    if (letter >= 'a' && letter <= 'z') {
+        letter = (char)(letter - 'a' + 'A');
+    }
+    bool shown = (letter >= 'A' && letter <= 'Z') || (letter >= '0' && letter <= '9')
+                 || letter == ' ' || letter == '-';
+    if (card) {
+        shown = shown || letter == '+' || letter == '.' || letter == '/' || letter == ':';
+    }
+    return shown ? letter : card ? ' ' : '-';
+}
+
+/* A value as a name on the scope, or as a line of a ship's card: no spaces
+ * round it, capitals, cut to the width and padded with spaces. A character
+ * that is not ASCII is one character. On the scope that has none for it is
+ * a hyphen, and on a card a space. */
+static void put_value(const scope_value_t *value, uint8_t *out, size_t width, bool card)
 {
     char text[64];
     size_t count = 0;
@@ -273,6 +289,11 @@ void scope_put_name(const scope_value_t *value, uint8_t *out, size_t width)
         }
         text[count++] = (char)letter;
     }
+    if (card) {                     /* a card's spaces are those it has no character for too */
+        for (size_t index = 0; index < count; index++) {
+            text[index] = shown_as(text[index], true);
+        }
+    }
     size_t first = 0;
     while (first < count && is_space(text[first])) {
         first++;
@@ -281,19 +302,18 @@ void scope_put_name(const scope_value_t *value, uint8_t *out, size_t width)
         count--;
     }
     for (size_t index = 0; index < width; index++) {
-        char letter = ' ';
-        if (first + index < count) {
-            letter = text[first + index];
-            if (letter >= 'a' && letter <= 'z') {
-                letter = (char)(letter - 'a' + 'A');
-            }
-            if (!((letter >= 'A' && letter <= 'Z') || (letter >= '0' && letter <= '9')
-                  || letter == ' ' || letter == '-')) {
-                letter = '-';
-            }
-        }
-        out[index] = (uint8_t)letter;
+        out[index] = (uint8_t)(first + index < count ? shown_as(text[first + index], card) : ' ');
     }
+}
+
+void scope_put_name(const scope_value_t *value, uint8_t *out, size_t width)
+{
+    put_value(value, out, width, false);
+}
+
+void scope_put_text(const scope_value_t *value, uint8_t *out, size_t width)
+{
+    put_value(value, out, width, true);
 }
 
 /* The first of these names that an aircraft has anything by, as a name on
@@ -391,6 +411,7 @@ nesp_radar_target_t *scope_spot(nesp_radar_t *radar, double latitude, double lon
     target->distance = distance;
     target->latitude = latitude;
     target->longitude = longitude;
+    memset(&target->ship, 0, sizeof(target->ship));
     uint8_t *motion = target->motion;
     memset(motion, 0, MOTION);
     put_xy(motion, distance, bearing, range_nm);
@@ -735,6 +756,7 @@ static void publish(nesp_radar_t *radar, bool well, uint32_t now_ms)
                 radar->held_where[slot][0] = radar->near[slot].latitude;
                 radar->held_where[slot][1] = radar->near[slot].longitude;
                 radar->held_where[slot][2] = radar->near[slot].distance;
+                radar->held_ship[slot] = radar->near[slot].ship;
             }
             names[0] = slot;
             renamed = renamed || memcmp(names, radar->names[slot], NAMES) != 0;
@@ -1109,6 +1131,7 @@ static void zoom(nesp_radar_t *radar)
     uint8_t motion[TARGETS][MOTION];
     uint8_t names[TARGETS][NAMES];
     double where[TARGETS][3];
+    nesp_harbor_ship_t ship[TARGETS];
     uint8_t count = 0;
     for (uint8_t slot = 0; slot < radar->count; slot++) {
         double bearing;
@@ -1125,6 +1148,7 @@ static void zoom(nesp_radar_t *radar)
         memmove(motion[place + 1], motion[place], moved * MOTION);
         memmove(names[place + 1], names[place], moved * NAMES);
         memmove(where[place + 1], where[place], moved * sizeof(where[0]));
+        memmove(&ship[place + 1], &ship[place], moved * sizeof(ship[0]));
         memcpy(motion[place], radar->motion[slot], MOTION);
         put_xy(motion[place], distance, bearing, radar->range_nm);
         motion[place][8] = (uint8_t)scope_rounded(distance * 10, 0, 99);
@@ -1132,6 +1156,7 @@ static void zoom(nesp_radar_t *radar)
         where[place][0] = radar->held_where[slot][0];
         where[place][1] = radar->held_where[slot][1];
         where[place][2] = distance;
+        ship[place] = radar->held_ship[slot];
         count++;
     }
     for (uint8_t slot = 0; slot < TARGETS; slot++) {
@@ -1148,6 +1173,7 @@ static void zoom(nesp_radar_t *radar)
     }
     memcpy(radar->motion, motion, (size_t)count * MOTION);
     memcpy(radar->held_where, where, (size_t)count * sizeof(where[0]));
+    memcpy(radar->held_ship, ship, (size_t)count * sizeof(ship[0]));
     radar->count = count;
     radar->serial = next(radar->serial);
     show(radar);
@@ -1319,6 +1345,34 @@ static void map(nesp_radar_t *radar, const nesp_request_t *request, nesp_reply_t
     reply->len = 3 + NESP_HARBOR_MAP_CODES;
 }
 
+/* HARBOR: a line of the card of the ship in a slot. As IDENTITY, with the
+ * names' serial, and with a ship there, the line's number and its text. */
+static void details(nesp_radar_t *radar, const nesp_request_t *request, nesp_reply_t *reply)
+{
+    if (request->len != 3 || request->data[1] >= TARGETS
+        || request->data[2] >= NESP_HARBOR_DETAIL_LINES
+        || reply->max < 4 + NESP_HARBOR_DETAIL_WIDTH) {
+        reply->status = NESP_ST_BAD_ARG;
+        return;
+    }
+    reply->len = 3;
+    reply->data[2] = 0;
+    if (!about(radar, request, reply) || reply->data[0] != NESP_SCOPE_READY) {
+        return;
+    }
+    reply->data[2] = radar->names_serial;
+    uint8_t slot = request->data[1];
+    if (slot >= radar->count) {
+        return;
+    }
+    uint32_t now = 0;
+    bool timed = radar->hal->time != NULL && radar->hal->time(radar->hal->ctx, &now);
+    reply->data[3] = request->data[2];
+    harbor_card(&radar->held_ship[slot], radar->held_where[slot][0], radar->held_where[slot][1],
+                request->data[2], timed, now, reply->data + 4);
+    reply->len = 4 + NESP_HARBOR_DETAIL_WIDTH;
+}
+
 static void put_le32(uint8_t *bytes, int32_t value)
 {
     uint32_t bits = (uint32_t)value;
@@ -1399,6 +1453,13 @@ static void handle(void *ctx, const nesp_request_t *request, nesp_reply_t *reply
     case NESP_HARBOR_PAN:
         if (radar->ships) {
             pan(radar, request, reply);
+        } else {
+            reply->status = NESP_ST_NO_OP;
+        }
+        break;
+    case NESP_HARBOR_DETAILS:
+        if (radar->ships) {
+            details(radar, request, reply);
         } else {
             reply->status = NESP_ST_NO_OP;
         }

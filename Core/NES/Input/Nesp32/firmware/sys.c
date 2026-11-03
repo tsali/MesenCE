@@ -242,6 +242,7 @@ void nesp_stick_init(nesp_stick_t *stick, const nesp_hal_t *hal)
     nesp_bsky_service(&stick->services[10], &stick->bsky, hal);
     nesp_kbd_service(&stick->services[11], &stick->kbd, hal);
     nesp_harbor_service(&stick->services[12], &stick->harbor, hal);
+    nesp_cam_service(&stick->services[13], &stick->cam, hal);
     for (size_t index = 0; index < sizeof(stick->services) / sizeof(stick->services[0]);
          index++) {
         nesp_link_register(&stick->link, &stick->services[index]);

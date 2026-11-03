@@ -239,7 +239,8 @@ typedef struct {
      * Returns how many, up to max; they are gone from the nesp32 then. */
     size_t (*kbd_read)(void *ctx, uint8_t *out, size_t max);
     /* May be NULL: a board that keeps no settings. A setting the console
-     * is never told, by its name ("aishub_key": HARBOR's AISHub username),
+     * is never told, by its name ("aishub_key": HARBOR's AISHub username;
+     * "nescam_url": the address CAM fetches a camera's frames from),
      * written to out with a 0 after it, max counting the 0. False: it is not
      * set, or does not fit. */
     bool (*setting)(void *ctx, const char *name, char *out, size_t max);
@@ -382,12 +383,35 @@ typedef struct {
 #define NESP_RADAR_KEY 12
 #define NESP_RADAR_SPOT 48          /* the longest place an airport is at, as it is written */
 
+/* HARBOR: what of a ship its card (DETAILS) says, kept as AIS has it and
+ * written out only when a line is asked for (harbor.c). Texts are in the
+ * card's characters, with spaces after them: all spaces is none. Where it
+ * is, is the scene's. */
+typedef struct {
+    uint32_t mmsi;
+    uint32_t imo;                   /* 0: not known */
+    uint32_t heard;                 /* when, in seconds since 1970: 0 not known */
+    uint16_t length;                /* metres, A + B: 0 not known */
+    uint16_t sog;                   /* tenths of a knot: 1023 not known */
+    uint16_t cog;                   /* tenths of a degree: 3600 not known */
+    uint16_t heading;               /* degrees: 511 not known */
+    uint8_t beam;                   /* metres, C + D: 0 not known */
+    uint8_t draught;                /* tenths of a metre: 0 not known */
+    uint8_t type;                   /* the AIS ship type: 0 not known */
+    uint8_t status;                 /* the navigational status: 15 not known */
+    char name[24];                  /* NAME, less AIS's "@" */
+    char call[7];                   /* CALLSIGN */
+    char dest[19];                  /* DEST, as much as a line has room for */
+    char eta[11];                   /* ETA, "MM-DD HH:MM" */
+} nesp_harbor_ship_t;
+
 typedef struct {
     double distance;                /* nautical miles from the airport */
     double latitude;                /* where it is, in degrees */
     double longitude;
     uint8_t motion[NESP_RADAR_MOTION_LEN];  /* its slot not yet in it */
     uint8_t names[NESP_RADAR_NAMES_LEN];    /* nor here */
+    nesp_harbor_ship_t ship;        /* HARBOR's */
 } nesp_radar_target_t;
 
 struct harbor_map_work;             /* HARBOR's map's decoder, which the fetch's task has */
@@ -469,6 +493,7 @@ typedef struct {
     int32_t found_longitude;
     /* Where the ships of the scene held are, for a new range. */
     double held_where[NESP_RADAR_TARGETS_MAX][3];  /* latitude, longitude, distance */
+    nesp_harbor_ship_t held_ship[NESP_RADAR_TARGETS_MAX];  /* and what their cards say */
     bool keyed;                     /* the board has an AISHub key, which is key_text */
     char key_text[NESP_HARBOR_KEY_MAX + 1];
     bool sent;                      /* a request has gone to AISHub, at sent_at: one a */
@@ -871,6 +896,54 @@ typedef struct {
     uint32_t shown_at;
 } nesp_tuner_t;
 
+/* CAM: a camera's latest frame, a NES pattern table, for a console to load
+ * in chunks (cam.c). */
+typedef struct {
+    const nesp_hal_t *hal;
+    nesp_sink_t sink;
+    /* What the link's task and the fetch's both touch, under the hal's
+     * lock: which fetch is wanted, and that it has ended. */
+    uint32_t generation;
+    uint8_t landed;                 /* 0, or how the fetch ended: 1 well, 2 badly */
+    uint8_t *target;                /* the frame the fetch fills */
+    /* The link's task alone. Two frames of NESP_CAM_FRAME_BYTES, asked for
+     * when a console first watches and kept: the one held, which the
+     * console is given, and the other, which a fetch fills. */
+    uint8_t *frames[2];
+    uint8_t held;                   /* which of the two is held */
+    /* Asked for with them and kept: the frame the console was last known
+     * to hold whole (TILES sets the held frame against it), and the one
+     * held at a quarter of the size (SMALL), made when first asked for. */
+    uint8_t *base;
+    uint8_t *small;
+    bool based;                     /* base is a frame, the one with base_serial */
+    uint8_t base_serial;
+    bool partial;                   /* TILES has sent some of the held frame's tiles, not all */
+    bool mixed;                     /* the console's tiles are of two frames: none is its base */
+    bool small_made;                /* small is the frame held */
+    uint32_t shrunk;                /* small frames made, for the tests */
+    bool holding;                   /* it is a frame */
+    uint8_t serial;                 /* the frame held: never 0 */
+    bool waiting;                   /* the other is a whole frame, not yet held */
+    bool finished;                  /* the console has had the one held to its last chunk */
+    bool chunked;                   /* it has asked for a chunk of it since the last tick */
+    uint32_t chunk_at;              /* when it last did, or when the frame was held */
+    bool watched;                   /* a console has asked since the hello */
+    bool watching;                  /* and has not stopped asking */
+    bool sourced;                   /* the nesp32 has a camera's address */
+    bool failed;                    /* the last fetch did */
+    bool no_memory;                 /* there was not room for the two frames */
+    bool asked;                     /* the console has asked since the last tick */
+    uint32_t asked_at;
+    uint32_t fetch_at;              /* when the last fetch began, or the address was looked for */
+    bool fetching;
+    bool fetched;                   /* a fetch has begun, or the address was looked for */
+    /* The fetch's task alone, until it says the fetch has landed. */
+    uint32_t parsing;               /* the fetch the two below are of */
+    uint32_t got;                   /* bytes of the frame that have come */
+    bool too_long;
+} nesp_cam_t;
+
 /* A Stick: the link and every service this firmware has. */
 typedef struct {
     nesp_link_t link;
@@ -887,7 +960,8 @@ typedef struct {
     nesp_bsky_t bsky;
     nesp_kbd_t kbd;
     nesp_harbor_t harbor;
-    nesp_service_t services[13];
+    nesp_cam_t cam;
+    nesp_service_t services[14];
 } nesp_stick_t;
 
 void nesp_stick_init(nesp_stick_t *stick, const nesp_hal_t *hal);
@@ -928,6 +1002,7 @@ void nesp_tuner_service(nesp_service_t *service, nesp_tuner_t *tuner, nesp_raw_t
 void nesp_weather_service(nesp_service_t *service, nesp_weather_t *weather,
                           const nesp_hal_t *hal);
 void nesp_bsky_service(nesp_service_t *service, nesp_bsky_t *bsky, const nesp_hal_t *hal);
+void nesp_cam_service(nesp_service_t *service, nesp_cam_t *cam, const nesp_hal_t *hal);
 
 /* For a service with something to send as a run (JUKE's sampled sound).
  *

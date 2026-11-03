@@ -67,6 +67,14 @@
  *
  * all in capitals, digits, spaces and hyphens, as RADAR's are.
  *
+ * DETAILS is a ship's card, as AIS sites show one: NESP_HARBOR_DETAIL_LINES
+ * lines of NESP_HARBOR_DETAIL_WIDTH characters, in capitals, digits, spaces
+ * and + - . / :, a hyphen for what AIS does not say. What it says is kept
+ * with the ship (nesp_harbor_ship_t), a few bytes a field and not the
+ * vessel's text, and goes with the ship wherever the scene puts it; a line
+ * is written out only when it is asked for. The flag is the country of the
+ * MMSI's first three digits.
+ *
  * The map (MAP and PAN) is land and water under the scope, made from
  * OpenStreetMap's standard tiles. The scope's square, 144 points across,
  * is 36 by 36 cells of four points, and a cell is water when most of its
@@ -241,6 +249,10 @@ static const char *status_word(long status)
     return status >= 0 && status <= 15 ? words[status] : "";
 }
 
+/* What of a vessel its card says (below). */
+static void keep_ship(nesp_harbor_ship_t *ship, const char *item, size_t len, double mmsi,
+                      long type, long status);
+
 /* One vessel of the reply, whole. */
 void harbor_vessel(nesp_radar_t *radar, const char *item, size_t len)
 {
@@ -298,6 +310,7 @@ void harbor_vessel(nesp_radar_t *radar, const char *item, size_t len)
         snprintf(category, sizeof(category), "%02ld", type);
     }
     put_word(category, names + 23, 2);
+    keep_ship(&target->ship, item, len, mmsi, type, status);
 }
 
 /* One place of Zippopotam's answer for a zip code: the first is where the
@@ -311,6 +324,395 @@ void harbor_zip(nesp_radar_t *radar, const char *item, size_t len)
     }
     snprintf(radar->spot, sizeof(radar->spot), "%.7f %.7f", longitude, latitude);
     radar->spotted = true;
+}
+
+/* --- the card ------------------------------------------------------------------ */
+
+#define WIDTH NESP_HARBOR_DETAIL_WIDTH
+#define NO_SOG_TENTHS 1023
+#define NO_COG_TENTHS 3600
+#define NO_STATUS 15
+
+/* A text of a vessel's, as the card keeps it: in the card's characters,
+ * spaces after it, and all spaces if it has none. */
+static void keep_text(const char *item, size_t len, const char *name, char *out, size_t width)
+{
+    scope_value_t value;
+    if (text_of(item, len, name, &value)) {
+        scope_put_text(&value, (uint8_t *)out, width);
+    } else {
+        memset(out, ' ', width);
+    }
+}
+
+/* Seconds since 1970 of AISHub's TIME, "2026-11-02 23:04:31 GMT". 0 if it
+ * is not one. */
+static uint32_t heard_at(const char *item, size_t len)
+{
+    static const char shape[] = "dddd-dd-dd dd:dd:dd";
+    scope_value_t value;
+    if (!scope_member(item, len, "TIME", &value) || !value.string
+        || value.len < sizeof(shape) - 1) {
+        return 0;
+    }
+    long field[6] = {0};
+    for (size_t at = 0, which = 0; at < sizeof(shape) - 1; at++) {
+        char letter = value.at[at];
+        if (shape[at] != 'd') {
+            if (letter != shape[at]) {
+                return 0;
+            }
+            which++;
+        } else if (letter >= '0' && letter <= '9') {
+            field[which] = field[which] * 10 + (letter - '0');
+        } else {
+            return 0;
+        }
+    }
+    long year = field[0], month = field[1], day = field[2];
+    if (year < 1970 || month < 1 || month > 12 || day < 1 || day > 31 || field[3] > 23
+        || field[4] > 59 || field[5] > 60) {
+        return 0;
+    }
+    /* Days since 1970 of a day of the Gregorian calendar. */
+    year -= month <= 2;
+    long era = year / 400;
+    long of_era = year - era * 400;
+    long of_year = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1;
+    long days = era * 146097 + of_era * 365 + of_era / 4 - of_era / 100 + of_year - 719468;
+    int64_t seconds = (int64_t)days * 86400 + field[3] * 3600 + field[4] * 60 + field[5];
+    return seconds > 0 && seconds <= (int64_t)UINT32_MAX ? (uint32_t)seconds : 0;
+}
+
+/* What of a vessel its card says. */
+static void keep_ship(nesp_harbor_ship_t *ship, const char *item, size_t len, double mmsi,
+                      long type, long status)
+{
+    double value, other;
+    ship->mmsi = (uint32_t)scope_rounded(mmsi, 0, 999999999);
+    ship->imo = scope_number(item, len, "IMO", &value) && value >= 1.0 && value <= 999999999.0
+                    ? (uint32_t)scope_rounded(value, 1, 999999999)
+                    : 0;
+    ship->heard = heard_at(item, len);
+    long a = scope_number(item, len, "A", &value) ? scope_rounded(value, 0, 511) : 0;
+    long b = scope_number(item, len, "B", &other) ? scope_rounded(other, 0, 511) : 0;
+    ship->length = (uint16_t)(a + b);
+    long c = scope_number(item, len, "C", &value) ? scope_rounded(value, 0, 63) : 0;
+    long d = scope_number(item, len, "D", &other) ? scope_rounded(other, 0, 63) : 0;
+    ship->beam = (uint8_t)(c + d);
+    ship->draught = scope_number(item, len, "DRAUGHT", &value) && value > 0.0
+                        ? (uint8_t)scope_rounded(value * 10, 0, 255)
+                        : 0;
+    ship->sog = scope_number(item, len, "SOG", &value) && value >= 0.0 && value < NO_SOG
+                    ? (uint16_t)scope_rounded(value * 10, 0, NO_SOG_TENTHS - 1)
+                    : NO_SOG_TENTHS;
+    ship->cog = scope_number(item, len, "COG", &value) && value >= 0.0 && value < NO_COURSE
+                    ? (uint16_t)scope_rounded(value * 10, 0, NO_COG_TENTHS - 1)
+                    : NO_COG_TENTHS;
+    ship->heading = scope_number(item, len, "HEADING", &value) && value >= 0.0 && value < 360.0
+                        ? (uint16_t)scope_rounded(value, 0, 359)
+                        : (uint16_t)NO_HEADING;
+    ship->type = (uint8_t)(type >= 0 && type <= 255 ? type : 0);
+    ship->status = (uint8_t)(status >= 0 && status <= NO_STATUS ? status : NO_STATUS);
+    keep_text(item, len, "NAME", ship->name, sizeof(ship->name));
+    keep_text(item, len, "CALLSIGN", ship->call, sizeof(ship->call));
+    keep_text(item, len, "DEST", ship->dest, sizeof(ship->dest));
+    keep_text(item, len, "ETA", ship->eta, sizeof(ship->eta));
+}
+
+/* The AIS ship type (ITU-R M.1371, table 53) in words. */
+static const char *type_words(long type)
+{
+    static const char *const special[] = {
+        "FISHING", "TOWING", "TOWING", "DREDGING", "DIVING", "MILITARY", "SAILING",
+        "PLEASURE CRAFT",                                               /* 30 to 37 */
+    };
+    static const char *const service[] = {
+        "PILOT", "SEARCH AND RESCUE", "TUG", "PORT TENDER", "ANTI-POLLUTION",
+        "LAW ENFORCEMENT", NULL, NULL, "MEDICAL", "SPECIAL CRAFT",     /* 50 to 59 */
+    };
+    if (type >= 20 && type <= 29) {
+        return "WING IN GROUND";
+    }
+    if (type >= 30 && type <= 37) {
+        return special[type - 30];
+    }
+    if (type >= 40 && type <= 49) {
+        return "HIGH SPEED CRAFT";
+    }
+    if (type >= 50 && type <= 59) {
+        return service[type - 50];
+    }
+    if (type >= 60 && type <= 69) {
+        return "PASSENGER";
+    }
+    if (type >= 70 && type <= 79) {
+        return "CARGO";
+    }
+    if (type >= 80 && type <= 89) {
+        return "TANKER";
+    }
+    if (type >= 90 && type <= 99) {
+        return "OTHER";
+    }
+    return NULL;
+}
+
+/* The navigational status in words. 11 and 12 are for regional use, as
+ * ITU-R M.1371-5 has them: a tug towing astern, and pushing ahead or
+ * towing alongside. */
+static const char *status_words(long status)
+{
+    static const char *const words[] = {
+        "UNDER WAY", "AT ANCHOR", "NOT UNDER COMMAND", "RESTRICTED", "CONSTRAINED", "MOORED",
+        "AGROUND", "FISHING", "SAILING", NULL, NULL, "TOWING ASTERN", "PUSHING AHEAD", NULL,
+        "AIS-SART", NULL,
+    };
+    return status >= 0 && status <= NO_STATUS ? words[status] : NULL;
+}
+
+/* The countries of the Maritime Identification Digits, the first three of
+ * a ship's MMSI: ITU's table (ITU-R M.585, and ITU's list of MIDs), less
+ * those of a few small territories. It is where the MMSI was assigned,
+ * which is the flag a ship flies, as the ship's own radio says it: an
+ * MMSI mistyped into a radio says another country, or none. */
+static const struct {
+    uint16_t first, last;
+    const char *country;
+} countries[] = {
+    {201, 201, "ALBANIA"}, {202, 202, "ANDORRA"}, {203, 203, "AUSTRIA"},
+    {204, 204, "PORTUGAL"}, {205, 205, "BELGIUM"}, {206, 206, "BELARUS"},
+    {207, 207, "BULGARIA"}, {208, 208, "VATICAN"}, {209, 210, "CYPRUS"},
+    {211, 211, "GERMANY"}, {212, 212, "CYPRUS"}, {213, 213, "GEORGIA"},
+    {214, 214, "MOLDOVA"}, {215, 215, "MALTA"}, {216, 216, "ARMENIA"},
+    {218, 218, "GERMANY"}, {219, 220, "DENMARK"}, {224, 225, "SPAIN"},
+    {226, 228, "FRANCE"}, {229, 229, "MALTA"}, {230, 230, "FINLAND"},
+    {231, 231, "FAROE IS"}, {232, 235, "UNITED KINGDOM"}, {236, 236, "GIBRALTAR"},
+    {237, 237, "GREECE"}, {238, 238, "CROATIA"}, {239, 241, "GREECE"},
+    {242, 242, "MOROCCO"}, {243, 243, "HUNGARY"}, {244, 246, "NETHERLANDS"},
+    {247, 247, "ITALY"}, {248, 249, "MALTA"}, {250, 250, "IRELAND"},
+    {251, 251, "ICELAND"}, {252, 252, "LIECHTENSTEIN"}, {253, 253, "LUXEMBOURG"},
+    {254, 254, "MONACO"}, {255, 255, "PORTUGAL"}, {256, 256, "MALTA"},
+    {257, 259, "NORWAY"}, {261, 261, "POLAND"}, {262, 262, "MONTENEGRO"},
+    {263, 263, "PORTUGAL"}, {264, 264, "ROMANIA"}, {265, 266, "SWEDEN"},
+    {267, 267, "SLOVAKIA"}, {268, 268, "SAN MARINO"}, {269, 269, "SWITZERLAND"},
+    {270, 270, "CZECHIA"}, {271, 271, "TURKEY"}, {272, 272, "UKRAINE"},
+    {273, 273, "RUSSIA"}, {274, 274, "NORTH MACEDONIA"}, {275, 275, "LATVIA"},
+    {276, 276, "ESTONIA"}, {277, 277, "LITHUANIA"}, {278, 278, "SLOVENIA"},
+    {279, 279, "SERBIA"},
+    {301, 301, "ANGUILLA"}, {303, 303, "UNITED STATES"}, {304, 305, "ANTIGUA"},
+    {307, 307, "ARUBA"}, {308, 309, "BAHAMAS"}, {310, 310, "BERMUDA"},
+    {311, 311, "BAHAMAS"}, {312, 312, "BELIZE"}, {314, 314, "BARBADOS"},
+    {316, 316, "CANADA"}, {319, 319, "CAYMAN IS"}, {321, 321, "COSTA RICA"},
+    {323, 323, "CUBA"}, {325, 325, "DOMINICA"}, {327, 327, "DOMINICAN REP"},
+    {329, 329, "GUADELOUPE"}, {330, 330, "GRENADA"}, {331, 331, "GREENLAND"},
+    {332, 332, "GUATEMALA"}, {334, 334, "HONDURAS"}, {336, 336, "HAITI"},
+    {338, 338, "UNITED STATES"}, {339, 339, "JAMAICA"}, {341, 341, "ST KITTS NEVIS"},
+    {343, 343, "ST LUCIA"}, {345, 345, "MEXICO"}, {347, 347, "MARTINIQUE"},
+    {348, 348, "MONTSERRAT"}, {350, 350, "NICARAGUA"}, {351, 357, "PANAMA"},
+    {358, 358, "PUERTO RICO"}, {359, 359, "EL SALVADOR"}, {361, 361, "ST PIERRE"},
+    {362, 362, "TRINIDAD TOBAGO"}, {364, 364, "TURKS CAICOS IS"},
+    {366, 369, "UNITED STATES"}, {370, 374, "PANAMA"}, {375, 377, "ST VINCENT"},
+    {378, 378, "BRIT VIRGIN IS"}, {379, 379, "US VIRGIN IS"},
+    {401, 401, "AFGHANISTAN"}, {403, 403, "SAUDI ARABIA"}, {405, 405, "BANGLADESH"},
+    {408, 408, "BAHRAIN"}, {410, 410, "BHUTAN"}, {412, 414, "CHINA"},
+    {416, 416, "TAIWAN"}, {417, 417, "SRI LANKA"}, {419, 419, "INDIA"},
+    {422, 422, "IRAN"}, {423, 423, "AZERBAIJAN"}, {425, 425, "IRAQ"},
+    {428, 428, "ISRAEL"}, {431, 432, "JAPAN"}, {434, 434, "TURKMENISTAN"},
+    {436, 436, "KAZAKHSTAN"}, {437, 437, "UZBEKISTAN"}, {438, 438, "JORDAN"},
+    {440, 441, "SOUTH KOREA"}, {443, 443, "PALESTINE"}, {445, 445, "NORTH KOREA"},
+    {447, 447, "KUWAIT"}, {450, 450, "LEBANON"}, {451, 451, "KYRGYZSTAN"},
+    {453, 453, "MACAO"}, {455, 455, "MALDIVES"}, {457, 457, "MONGOLIA"},
+    {459, 459, "NEPAL"}, {461, 461, "OMAN"}, {463, 463, "PAKISTAN"},
+    {466, 466, "QATAR"}, {468, 468, "SYRIA"}, {470, 471, "UAE"},
+    {472, 472, "TAJIKISTAN"}, {473, 473, "YEMEN"}, {475, 475, "YEMEN"},
+    {477, 477, "HONG KONG"}, {478, 478, "BOSNIA"},
+    {503, 503, "AUSTRALIA"}, {506, 506, "MYANMAR"}, {508, 508, "BRUNEI"},
+    {510, 510, "MICRONESIA"}, {511, 511, "PALAU"}, {512, 512, "NEW ZEALAND"},
+    {514, 515, "CAMBODIA"}, {518, 518, "COOK IS"}, {520, 520, "FIJI"},
+    {525, 525, "INDONESIA"}, {529, 529, "KIRIBATI"}, {531, 531, "LAOS"},
+    {533, 533, "MALAYSIA"}, {536, 536, "N MARIANA IS"}, {538, 538, "MARSHALL IS"},
+    {540, 540, "NEW CALEDONIA"}, {542, 542, "NIUE"}, {544, 544, "NAURU"},
+    {546, 546, "FRENCH POLYNESIA"}, {548, 548, "PHILIPPINES"},
+    {553, 553, "PAPUA NEW GUINEA"}, {555, 555, "PITCAIRN"}, {557, 557, "SOLOMON IS"},
+    {559, 559, "AMERICAN SAMOA"}, {561, 561, "SAMOA"}, {563, 566, "SINGAPORE"},
+    {567, 567, "THAILAND"}, {570, 570, "TONGA"}, {572, 572, "TUVALU"},
+    {574, 574, "VIETNAM"}, {576, 577, "VANUATU"}, {578, 578, "WALLIS FUTUNA"},
+    {601, 601, "SOUTH AFRICA"}, {603, 603, "ANGOLA"}, {605, 605, "ALGERIA"},
+    {609, 609, "BURUNDI"}, {610, 610, "BENIN"}, {611, 611, "BOTSWANA"},
+    {613, 613, "CAMEROON"}, {615, 615, "CONGO"}, {617, 617, "CAPE VERDE"},
+    {619, 619, "IVORY COAST"}, {621, 621, "DJIBOUTI"}, {622, 622, "EGYPT"},
+    {624, 624, "ETHIOPIA"}, {625, 625, "ERITREA"}, {626, 626, "GABON"},
+    {627, 627, "GHANA"}, {629, 629, "GAMBIA"}, {630, 630, "GUINEA-BISSAU"},
+    {631, 631, "EQUATORIAL GUINEA"}, {632, 632, "GUINEA"}, {633, 633, "BURKINA FASO"},
+    {634, 634, "KENYA"}, {636, 637, "LIBERIA"}, {638, 638, "SOUTH SUDAN"},
+    {642, 642, "LIBYA"}, {644, 644, "LESOTHO"}, {645, 645, "MAURITIUS"},
+    {647, 647, "MADAGASCAR"}, {649, 649, "MALI"}, {650, 650, "MOZAMBIQUE"},
+    {654, 654, "MAURITANIA"}, {655, 655, "MALAWI"}, {656, 656, "NIGER"},
+    {657, 657, "NIGERIA"}, {659, 659, "NAMIBIA"}, {660, 660, "REUNION"},
+    {661, 661, "RWANDA"}, {662, 662, "SUDAN"}, {663, 663, "SENEGAL"},
+    {664, 664, "SEYCHELLES"}, {665, 665, "ST HELENA"}, {666, 666, "SOMALIA"},
+    {667, 667, "SIERRA LEONE"}, {668, 668, "SAO TOME"}, {669, 669, "ESWATINI"},
+    {670, 670, "CHAD"}, {671, 671, "TOGO"}, {672, 672, "TUNISIA"},
+    {674, 674, "TANZANIA"}, {675, 675, "UGANDA"}, {676, 676, "DR CONGO"},
+    {677, 677, "TANZANIA"}, {678, 678, "ZAMBIA"}, {679, 679, "ZIMBABWE"},
+    {701, 701, "ARGENTINA"}, {710, 710, "BRAZIL"}, {720, 720, "BOLIVIA"},
+    {725, 725, "CHILE"}, {730, 730, "COLOMBIA"}, {735, 735, "ECUADOR"},
+    {740, 740, "FALKLAND IS"}, {745, 745, "FRENCH GUIANA"}, {750, 750, "GUYANA"},
+    {755, 755, "PARAGUAY"}, {760, 760, "PERU"}, {765, 765, "SURINAME"},
+    {770, 770, "URUGUAY"}, {775, 775, "VENEZUELA"},
+};
+
+/* The country of a ship's MMSI, of nine digits the first 2 to 7. NULL if
+ * it is not a ship's, or its MID is not in the table. */
+static const char *country_of(uint32_t mmsi)
+{
+    uint32_t first = mmsi / 100000000u;
+    if (first < 2 || first > 7) {
+        return NULL;
+    }
+    uint32_t mid = mmsi / 1000000u;
+    for (size_t index = 0; index < sizeof(countries) / sizeof(countries[0]); index++) {
+        if (mid >= countries[index].first && mid <= countries[index].last) {
+            return countries[index].country;
+        }
+    }
+    return NULL;
+}
+
+/* How long a text the card keeps is, less the spaces after it. */
+static int kept_len(const char *text, size_t width)
+{
+    while (width > 0 && text[width - 1] == ' ') {
+        width--;
+    }
+    return (int)width;
+}
+
+void harbor_card(const nesp_harbor_ship_t *ship, double latitude, double longitude,
+                 uint8_t line, bool timed, uint32_t now, uint8_t *out)
+{
+    char text[64];
+    char part[32];
+    const char *words;
+    int len;
+    switch (line) {
+    case 0:                         /* its name, or what it has for one */
+        if ((len = kept_len(ship->name, sizeof(ship->name))) > 0) {
+            snprintf(text, sizeof(text), "%.*s", len, ship->name);
+        } else if ((len = kept_len(ship->call, sizeof(ship->call))) > 0) {
+            snprintf(text, sizeof(text), "%.*s", len, ship->call);
+        } else {
+            snprintf(text, sizeof(text), "MMSI %09lu", (unsigned long)ship->mmsi);
+        }
+        break;
+    case 1:
+        snprintf(text, sizeof(text), "MMSI %09lu", (unsigned long)ship->mmsi);
+        break;
+    case 2:
+        if (ship->imo != 0) {
+            snprintf(text, sizeof(text), "IMO %lu", (unsigned long)ship->imo);
+        } else {
+            snprintf(text, sizeof(text), "IMO -");
+        }
+        break;
+    case 3:
+        len = kept_len(ship->call, sizeof(ship->call));
+        snprintf(text, sizeof(text), "CALL %.*s", len > 0 ? len : 1, len > 0 ? ship->call : "-");
+        break;
+    case 4:
+        words = country_of(ship->mmsi);
+        snprintf(text, sizeof(text), "FLAG %s", words != NULL ? words : "-");
+        break;
+    case 5:
+        words = type_words(ship->type);
+        snprintf(text, sizeof(text), "TYPE %s", words != NULL ? words : "-");
+        break;
+    case 6:
+        words = status_words(ship->status);
+        snprintf(text, sizeof(text), "STATUS %s", words != NULL ? words : "-");
+        break;
+    case 7:
+        len = kept_len(ship->dest, sizeof(ship->dest));
+        snprintf(text, sizeof(text), "DEST %.*s", len > 0 ? len : 1, len > 0 ? ship->dest : "-");
+        break;
+    case 8:                         /* "00-00 00:00" is AIS's none */
+        len = kept_len(ship->eta, sizeof(ship->eta));
+        if (len == 0 || (len == 11 && memcmp(ship->eta, "00-00 00:00", 11) == 0)) {
+            snprintf(text, sizeof(text), "ETA -");
+        } else {
+            snprintf(text, sizeof(text), "ETA %.*s", len, ship->eta);
+        }
+        break;
+    case 9:
+        if (ship->length == 0 && ship->beam == 0) {
+            snprintf(text, sizeof(text), "SIZE -");
+            break;
+        }
+        if (ship->length != 0) {
+            snprintf(part, sizeof(part), "%u", (unsigned)ship->length);
+        } else {
+            snprintf(part, sizeof(part), "-");
+        }
+        if (ship->beam != 0) {
+            snprintf(text, sizeof(text), "SIZE %s X %u M", part, (unsigned)ship->beam);
+        } else {
+            snprintf(text, sizeof(text), "SIZE %s X - M", part);
+        }
+        break;
+    case 10:
+        if (ship->draught != 0) {
+            snprintf(text, sizeof(text), "DRAFT %u.%u M", (unsigned)ship->draught / 10,
+                     (unsigned)ship->draught % 10);
+        } else {
+            snprintf(text, sizeof(text), "DRAFT -");
+        }
+        break;
+    case 11:
+        if (ship->sog < NO_SOG_TENTHS) {
+            snprintf(part, sizeof(part), "SOG %u.%u KN", (unsigned)ship->sog / 10,
+                     (unsigned)ship->sog % 10);
+        } else {
+            snprintf(part, sizeof(part), "SOG -");
+        }
+        if (ship->cog < NO_COG_TENTHS) {
+            snprintf(text, sizeof(text), "%s COG %u", part, ((unsigned)ship->cog + 5) / 10 % 360);
+        } else {
+            snprintf(text, sizeof(text), "%s COG -", part);
+        }
+        break;
+    case 12:
+        if (ship->heading < 360) {
+            snprintf(text, sizeof(text), "HEADING %u", (unsigned)ship->heading);
+        } else {
+            snprintf(text, sizeof(text), "HEADING -");
+        }
+        break;
+    case 13:
+        snprintf(text, sizeof(text), "LAT %.4f %c", fabs(latitude), latitude < 0 ? 'S' : 'N');
+        break;
+    case 14:
+        snprintf(text, sizeof(text), "LON %.4f %c", fabs(longitude), longitude < 0 ? 'W' : 'E');
+        break;
+    case 15: {                      /* how long ago AISHub heard it, by the hal's clock */
+        int64_t ago = (int64_t)now - (int64_t)ship->heard;
+        if (!timed || ship->heard == 0) {
+            snprintf(text, sizeof(text), "HEARD -");
+        } else if (ago < 60) {
+            snprintf(text, sizeof(text), "HEARD JUST NOW");
+        } else if (ago < 3600) {
+            snprintf(text, sizeof(text), "HEARD %ld MIN AGO", (long)(ago / 60));
+        } else {
+            snprintf(text, sizeof(text), "HEARD %ld H AGO", (long)(ago / 3600));
+        }
+        break;
+    }
+    default:
+        text[0] = 0;
+        break;
+    }
+    scope_value_t value = {text, strlen(text), false};
+    scope_put_text(&value, out, WIDTH);
 }
 
 /* --- the map ------------------------------------------------------------------- */

@@ -931,6 +931,9 @@
        <ClCompile Include="NES\Input\Nesp32\firmware\png.c">
       <Filter>NES\Input\Nesp32\firmware</Filter>
     </ClCompile>
+    <ClCompile Include="NES\Input\Nesp32\firmware\cam.c">
+      <Filter>NES\Input\Nesp32\firmware</Filter>
+    </ClCompile>
     <ClCompile Include="NES\Input\Nesp32\firmware\harbor.c">
       <Filter>NES\Input\Nesp32\firmware</Filter>
     </ClCompile>
