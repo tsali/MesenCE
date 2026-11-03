@@ -2033,6 +2033,7 @@ E
 			<Value ID="SuborMouse">Subor Mouse</Value>
 			<Value ID="VbController">Virtual Boy Controller</Value>
 			<Value ID="Nesp32">NESP32 (Wi-Fi)</Value>
+			<Value ID="Nesp32Exp">NESP32 Expansion (fast)</Value>
 
 			<Value ID="FourScore">Four Score (NES)</Value>
 			<Value ID="FamicomZapper">Zapper (Famicom)</Value>

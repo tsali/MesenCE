@@ -105,7 +105,8 @@ namespace Mesen.ViewModels
 			ControllerType.HoriTrack,
 			ControllerType.BandaiHyperShot,
 			ControllerType.AsciiTurboFile,
-			ControllerType.BattleBox
+			ControllerType.BattleBox,
+			ControllerType.Nesp32Exp
 		};
 
 		public Enum[] AvailableControllerTypesMapperInput => new Enum[] {

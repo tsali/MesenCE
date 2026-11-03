@@ -24,23 +24,27 @@ class Nesp32Device : public BaseControlDevice
 public:
 	enum Buttons { A = 0, B };
 
-private:
+protected:
 	static constexpr double Turnaround = 179; //~0.1 ms from a request's last byte to the reply
 	static constexpr size_t TxBuffer = 2048;  //the board's UART transmit buffer
 	static constexpr uint64_t BusyTickCycles = NESP_CPU_HZ * 2 / 1000;
 	static constexpr uint64_t IdleTickCycles = NESP_CPU_HZ * 20 / 1000;
 
+private:
 	nesp_hal_t _hal = {};
 	unique_ptr<nesp_stick_t> _stick;
 	Nesp32Fetcher _fetcher;
 	std::recursive_mutex _lock;
 
+protected:
 	Nesp32Line::Wire _wire = Nesp32Line::Wire(NESP_TO_NES_BITS);
 	Nesp32Line::Tap _tap;
 	double _bit = NESP_PERIOD;   //the UART's bit length, in CPU cycles, both ways
+	uint64_t _now = 0;
+
+private:
 	double _searchFrom = 0;
 	double _heardAt = 0;
-	uint64_t _now = 0;
 	uint64_t _nextTick = 0;
 	vector<std::pair<uint8_t, double>> _heard;
 
@@ -61,7 +65,6 @@ private:
 	vector<string> _tracks;
 	bool _wasPressed[2] = {};
 
-	void Advance(uint64_t now);
 	void SetupHal();
 	void LoadTracks();
 
@@ -113,6 +116,21 @@ private:
 protected:
 	string GetKeyNames() override { return "AB"; }
 	void InternalSetStateFromInput() override;
+
+	//Brings the board up to a cycle (its link, its services' tick)
+	void Advance(uint64_t now);
+
+	//The board's side of the line toward the console. Here, its UART on
+	//D0; Nesp32ExpDevice (the expansion-port variant) puts its own in.
+	//Send: bytes from cycle "at" on (which may be ahead of _now).
+	//Waiting: bytes not yet out, for the transmit buffer's room.
+	//Idle: nothing left to go out. Reset: time went back.
+	virtual void TxSend(const uint8_t* data, size_t len, double at);
+	virtual size_t TxWaiting();
+	virtual bool TxIdle();
+	virtual void TxReset();
+
+	Nesp32Device(Emulator* emu, ControllerType type, uint8_t port, KeyMappingSet keyMappings);
 
 public:
 	Nesp32Device(Emulator* emu, uint8_t port, KeyMappingSet keyMappings);

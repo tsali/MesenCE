@@ -479,6 +479,7 @@
     <ClInclude Include="NES\HdPacks\OggReader.h" />
     <ClInclude Include="NES\Input\ArkanoidController.h" />
     <ClInclude Include="NES\Input\Nesp32\Nesp32Device.h" />
+    <ClInclude Include="NES\Input\Nesp32\Nesp32ExpDevice.h" />
     <ClInclude Include="NES\Input\Nesp32\Nesp32Fetcher.h" />
     <ClInclude Include="NES\Input\Nesp32\Nesp32Line.h" />
     <ClInclude Include="NES\Input\Nesp32\firmware\minimp3.h" />
@@ -947,6 +948,7 @@
     <ClCompile Include="NES\BaseMapper.cpp" />
     <ClCompile Include="NES\NesControlManager.cpp" />
     <ClCompile Include="NES\Input\Nesp32\Nesp32Device.cpp" />
+    <ClCompile Include="NES\Input\Nesp32\Nesp32ExpDevice.cpp" />
     <ClCompile Include="NES\Input\Nesp32\Nesp32Fetcher.cpp">
       <!-- Includes windows.h/winhttp.h, which need Microsoft extensions (Core builds with /Za) -->
       <DisableLanguageExtensions Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</DisableLanguageExtensions>

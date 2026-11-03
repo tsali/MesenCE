@@ -62,7 +62,7 @@ namespace Mesen.Config
 				ControllerType.KonamiHyperShot => KonamiHyperShotButtons,
 				ControllerType.FamicomArkanoidController => ArkanoidButtons,
 				ControllerType.NesArkanoidController => ArkanoidButtons,
-				ControllerType.Nesp32 => Nesp32Buttons,
+				ControllerType.Nesp32 or ControllerType.Nesp32Exp => Nesp32Buttons,
 				ControllerType.FamicomZapper => ZapperButtons,
 				ControllerType.NesZapper => ZapperButtons,
 				ControllerType.SnesMouse => MouseButtons,
@@ -108,7 +108,7 @@ namespace Mesen.Config
 				ControllerType.SuborKeyboard => Enum.GetValues<NesSuborKeyboardButtons>().Select(val => new CustomKeyMapping(ResourceHelper.GetEnumText(val), buttonMappings, (int)val)).ToList(),
 				ControllerType.VbController => Enum.GetValues<NesVirtualBoyButtons>().Select(val => new CustomKeyMapping(ResourceHelper.GetEnumText(val), buttonMappings, (int)val)).ToList(),
 				ControllerType.KonamiHyperShot => Enum.GetValues<NesKonamiHyperShotButtons>().Select(val => new CustomKeyMapping(ResourceHelper.GetEnumText(val), buttonMappings, (int)val)).ToList(),
-				ControllerType.Nesp32 => Enum.GetValues<NesNesp32Buttons>().Select(val => new CustomKeyMapping(ResourceHelper.GetEnumText(val), buttonMappings, (int)val)).ToList(),
+				ControllerType.Nesp32 or ControllerType.Nesp32Exp => Enum.GetValues<NesNesp32Buttons>().Select(val => new CustomKeyMapping(ResourceHelper.GetEnumText(val), buttonMappings, (int)val)).ToList(),
 				ControllerType.NesArkanoidController or ControllerType.FamicomArkanoidController => Enum.GetValues<NesArkanoidButtons>().Select(val => new CustomKeyMapping(ResourceHelper.GetEnumText(val), buttonMappings, (int)val)).ToList(),
 				ControllerType.NesZapper or ControllerType.FamicomZapper => Enum.GetValues<NesZapperButtons>().Select(val => new CustomKeyMapping(ResourceHelper.GetEnumText(val), buttonMappings, (int)val)).ToList(),
 				ControllerType.SnesMouse or ControllerType.SuborMouse => Enum.GetValues<GenericMouseButtons>().Select(val => new CustomKeyMapping(ResourceHelper.GetEnumText(val), buttonMappings, (int)val)).ToList(),
@@ -197,6 +197,7 @@ namespace Mesen.Config
 					break;
 
 				case ControllerType.Nesp32:
+				case ControllerType.Nesp32Exp:
 					Nesp32Buttons = new UInt16[2];
 					break;
 
@@ -425,6 +426,7 @@ namespace Mesen.Config
 					};
 
 				case ControllerType.Nesp32:
+				case ControllerType.Nesp32Exp:
 					//The NESP32 board's own two buttons
 					return new UInt16[2] {
 						InputApi.GetKeyCode("Insert"),
@@ -485,7 +487,8 @@ namespace Mesen.Config
 					break;
 
 				case ControllerType.NesArkanoidController: ArkanoidButtons = GetDefaultCustomKeys(type, preset); break;
-				case ControllerType.Nesp32: Nesp32Buttons = GetDefaultCustomKeys(type, preset); break;
+				case ControllerType.Nesp32:
+				case ControllerType.Nesp32Exp: Nesp32Buttons = GetDefaultCustomKeys(type, preset); break;
 				case ControllerType.FamicomArkanoidController: ArkanoidButtons = GetDefaultCustomKeys(type, preset); break;
 
 				case ControllerType.SuborMouse: MouseButtons = GetDefaultCustomKeys(type, preset); break;

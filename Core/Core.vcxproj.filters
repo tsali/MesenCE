@@ -847,6 +847,9 @@
     <ClInclude Include="NES\Input\Nesp32\Nesp32Device.h">
       <Filter>NES\Input\Nesp32</Filter>
     </ClInclude>
+    <ClInclude Include="NES\Input\Nesp32\Nesp32ExpDevice.h">
+      <Filter>NES\Input\Nesp32</Filter>
+    </ClInclude>
     <ClInclude Include="NES\Input\Nesp32\Nesp32Fetcher.h">
       <Filter>NES\Input\Nesp32</Filter>
     </ClInclude>
@@ -890,6 +893,9 @@
       <Filter>NES\Input\Nesp32\firmware</Filter>
     </ClInclude>
     <ClCompile Include="NES\Input\Nesp32\Nesp32Device.cpp">
+      <Filter>NES\Input\Nesp32</Filter>
+    </ClCompile>
+    <ClCompile Include="NES\Input\Nesp32\Nesp32ExpDevice.cpp">
       <Filter>NES\Input\Nesp32</Filter>
     </ClCompile>
     <ClCompile Include="NES\Input\Nesp32\Nesp32Fetcher.cpp">

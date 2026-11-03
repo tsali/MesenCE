@@ -279,7 +279,10 @@ enum class ControllerType
 	Pcv2Controller,
 
 	//NES Wi-Fi interface on controller port 2 (github.com/Armitage64/nesp32)
-	Nesp32
+	Nesp32,
+
+	//An NESP32 on the expansion port, with a nibble-wide way back on $4017 D1-D4
+	Nesp32Exp
 };
 
 struct KeyMapping

@@ -13,6 +13,7 @@
 #include "Shared/SystemActionManager.h"
 #include "NES/Input/NesController.h"
 #include "NES/Input/Nesp32/Nesp32Device.h"
+#include "NES/Input/Nesp32/Nesp32ExpDevice.h"
 #include "SNES/Input/SnesController.h"
 #include "SNES/Input/SnesMouse.h"
 #include "SNES/Input/SnesNttDataKeypad.h"
@@ -117,6 +118,7 @@ shared_ptr<BaseControlDevice> NesControlManager::CreateControllerDevice(Controll
 		case ControllerType::PartyTap: device.reset(new PartyTap(_emu, keys)); break;
 		case ControllerType::Pachinko: device.reset(new PachinkoController(_emu, BaseControlDevice::ExpDevicePort, keys)); break;
 		case ControllerType::FcnsController: device.reset(new FcnsController(_emu, BaseControlDevice::ExpDevicePort, keys)); break;
+		case ControllerType::Nesp32Exp: device.reset(new Nesp32ExpDevice(_emu, BaseControlDevice::ExpDevicePort, keys)); break;
 		case ControllerType::ExcitingBoxing: device.reset(new ExcitingBoxingController(_emu, keys)); break;
 		case ControllerType::JissenMahjong: device.reset(new JissenMahjongController(_emu, keys)); break;
 		case ControllerType::SuborKeyboard: device.reset(new SuborKeyboard(_emu, keys)); break;

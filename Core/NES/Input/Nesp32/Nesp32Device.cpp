@@ -16,7 +16,12 @@ static Nesp32Device* Self(void* ctx) { return (Nesp32Device*)ctx; }
 static const char* NetworkName = "Mesen";
 
 Nesp32Device::Nesp32Device(Emulator* emu, uint8_t port, KeyMappingSet keyMappings)
-	: BaseControlDevice(emu, ControllerType::Nesp32, port, keyMappings)
+	: Nesp32Device(emu, ControllerType::Nesp32, port, keyMappings)
+{
+}
+
+Nesp32Device::Nesp32Device(Emulator* emu, ControllerType type, uint8_t port, KeyMappingSet keyMappings)
+	: BaseControlDevice(emu, type, port, keyMappings)
 {
 	//On the network from the start, as a board that has joined one before
 	_wifi.state = NESP_WIFI_JOINED;
@@ -199,7 +204,7 @@ void Nesp32Device::Advance(uint64_t now)
 {
 	if(now < _now) {
 		//Time went back (a reset, or a saved state loaded): the line starts over
-		_wire.Reset();
+		TxReset();
 		_tap.Reset();
 		_searchFrom = (double)now;
 		_heardAt = (double)now;
@@ -220,7 +225,7 @@ void Nesp32Device::Advance(uint64_t now)
 		size_t replyLen = nesp_stick_feed(_stick.get(), data, len, reply);
 		if(replyLen > 0) {
 			double at = std::max(_heardAt + Turnaround, (double)now);
-			_wire.Send(reply, replyLen, at, _bit);
+			TxSend(reply, replyLen, at);
 			nesp_link_note_turnaround(&_stick->link, (uint32_t)((at - _heardAt) * 1000000.0 / NESP_CPU_HZ));
 		}
 		_nextTick = now; //a tick right after every reply, as the board's link task does
@@ -350,20 +355,39 @@ void Nesp32Device::HalLineRate(void* ctx, uint8_t period)
 size_t Nesp32Device::HalLineWrite(void* ctx, const uint8_t* data, size_t len)
 {
 	Nesp32Device* self = Self(ctx);
-	double now = (double)self->_now;
-	size_t waiting = self->_wire.Waiting(now, self->_bit);
+	size_t waiting = self->TxWaiting();
 	size_t room = waiting < TxBuffer ? TxBuffer - waiting : 0;
 	size_t count = std::min(len, room);
 	if(count > 0) {
-		self->_wire.Send(data, count, now, self->_bit);
+		self->TxSend(data, count, (double)self->_now);
 	}
 	return count;
 }
 
 bool Nesp32Device::HalLineIdle(void* ctx)
 {
-	Nesp32Device* self = Self(ctx);
-	return self->_wire.BusyUntil() <= (double)self->_now;
+	return Self(ctx)->TxIdle();
+}
+
+//The UART on D0
+void Nesp32Device::TxSend(const uint8_t* data, size_t len, double at)
+{
+	_wire.Send(data, len, at, _bit);
+}
+
+size_t Nesp32Device::TxWaiting()
+{
+	return _wire.Waiting((double)_now, _bit);
+}
+
+bool Nesp32Device::TxIdle()
+{
+	return _wire.BusyUntil() <= (double)_now;
+}
+
+void Nesp32Device::TxReset()
+{
+	_wire.Reset();
 }
 
 uint16_t Nesp32Device::HalTracks(void* ctx)
