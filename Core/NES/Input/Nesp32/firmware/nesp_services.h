@@ -390,6 +390,8 @@ typedef struct {
     uint8_t names[NESP_RADAR_NAMES_LEN];    /* nor here */
 } nesp_radar_target_t;
 
+struct harbor_map_work;             /* HARBOR's map's decoder, which the fetch's task has */
+
 typedef struct {
     const nesp_hal_t *hal;
     nesp_sink_t sink;
@@ -473,6 +475,30 @@ typedef struct {
     uint32_t sent_at;               /* minute at most, whatever airport it was for */
     bool vouched;                   /* the fetch's task: the reply's header said no error */
     bool refused;                   /* and this: it said there was one */
+    /* HARBOR's map of land and water under the scope (harbor.c), from
+     * OpenStreetMap's tiles. The link's task's, but for what is said. */
+    bool map_wanted;                /* MAP has been asked since the place or range changed */
+    uint8_t map_serial;             /* the map held: 0 none */
+    uint8_t map_last;               /* the last serial a map had, so the next differs */
+    int32_t map_latitude;           /* where the map held, or being made, is of */
+    int32_t map_longitude;
+    uint8_t map_range;              /* and its range in nautical miles */
+    uint8_t map_codes[NESP_HARBOR_MAP_ROWS][NESP_HARBOR_MAP_CODES];
+    bool map_making;                /* tiles are being fetched for a map */
+    bool mapping;                   /* the fetch is of one: read by the fetch's task */
+    bool map_failed;                /* a map failed, at map_failed_at */
+    uint32_t map_failed_at;
+    uint8_t map_zoom;               /* the tiles' zoom, */
+    uint8_t map_tiles;              /* how many there are, */
+    uint8_t map_tile;               /* and which is being fetched, read by the fetch's task */
+    int32_t map_tile_at[4][2];      /* each one's x and y, as the samples' are */
+    /* Where each column and row of samples is, in pixels of the whole
+     * world at map_zoom; x is not wrapped round. The fetch's task reads
+     * them. */
+    int32_t map_x[NESP_HARBOR_MAP_ROWS * 6];
+    int32_t map_y[NESP_HARBOR_MAP_ROWS * 6];
+    uint32_t map_parsing;           /* the fetch's task: the tile it is in the middle of */
+    struct harbor_map_work *map_work;   /* the decoder's memory, asked for once and kept */
 } nesp_radar_t;
 
 /* HARBOR: the ships round an airport, for a NES Radar that shows ships

@@ -56,6 +56,13 @@ void harbor_vessel(nesp_radar_t *radar, const char *item, size_t len);
 void harbor_zip(nesp_radar_t *radar, const char *item, size_t len);
 bool harbor_key(nesp_radar_t *radar);
 void harbor_url(const nesp_radar_t *radar, char *url, size_t size);
+/* HARBOR's map (harbor.c): planned on the link's task, the tiles read on
+ * the fetch's, and the codes made on the link's when all have come. */
+bool harbor_map_plan(nesp_radar_t *radar);
+void harbor_map_url(const nesp_radar_t *radar, char *url, size_t size);
+bool harbor_map_body(nesp_radar_t *radar, uint32_t id, const uint8_t *data, size_t len);
+bool harbor_map_whole(const nesp_radar_t *radar, uint32_t id);
+void harbor_map_codes(nesp_radar_t *radar);
 /* Makes radar.c's service, as RADAR or as HARBOR (radar.c). */
 void scope_service(nesp_service_t *service, nesp_radar_t *radar, const nesp_hal_t *hal,
                    bool ships);

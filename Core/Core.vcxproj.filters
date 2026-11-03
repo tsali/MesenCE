@@ -871,6 +871,21 @@
     <ClInclude Include="NES\Input\Nesp32\firmware\scope.h">
       <Filter>NES\Input\Nesp32\firmware</Filter>
     </ClInclude>
+    <ClInclude Include="NES\Input\Nesp32\firmware\miniz_export.h">
+      <Filter>NES\Input\Nesp32\firmware</Filter>
+    </ClInclude>
+    <ClInclude Include="NES\Input\Nesp32\firmware\miniz_common.h">
+      <Filter>NES\Input\Nesp32\firmware</Filter>
+    </ClInclude>
+    <ClInclude Include="NES\Input\Nesp32\firmware\miniz_tinfl.h">
+      <Filter>NES\Input\Nesp32\firmware</Filter>
+    </ClInclude>
+    <ClInclude Include="NES\Input\Nesp32\firmware\miniz.h">
+      <Filter>NES\Input\Nesp32\firmware</Filter>
+    </ClInclude>
+    <ClInclude Include="NES\Input\Nesp32\firmware\nesp_png.h">
+      <Filter>NES\Input\Nesp32\firmware</Filter>
+    </ClInclude>
     <ClInclude Include="NES\Input\Nesp32\firmware\nesp_text.h">
       <Filter>NES\Input\Nesp32\firmware</Filter>
     </ClInclude>
@@ -908,6 +923,12 @@
       <Filter>NES\Input\Nesp32\firmware</Filter>
     </ClCompile>
     <ClCompile Include="NES\Input\Nesp32\firmware\peer.c">
+      <Filter>NES\Input\Nesp32\firmware</Filter>
+    </ClCompile>
+    <ClCompile Include="NES\Input\Nesp32\firmware\png.c">
+      <Filter>NES\Input\Nesp32\firmware</Filter>
+    </ClCompile>
+       <ClCompile Include="NES\Input\Nesp32\firmware\png.c">
       <Filter>NES\Input\Nesp32\firmware</Filter>
     </ClCompile>
     <ClCompile Include="NES\Input\Nesp32\firmware\harbor.c">

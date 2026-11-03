@@ -116,6 +116,8 @@
 #define NESP_HARBOR_SCENE            0x01
 #define NESP_HARBOR_IDENTITY         0x02
 #define NESP_HARBOR_LAST             0x03
+#define NESP_HARBOR_MAP              0x04
+#define NESP_HARBOR_PAN              0x05
 #define NESP_WIFI_NONE               0x00
 #define NESP_WIFI_IDLE               0x01
 #define NESP_WIFI_JOINING            0x02
@@ -320,6 +322,9 @@
 #define NESP_HARBOR_RANGE_NM         0x14
 #define NESP_HARBOR_RANGE_MAX        60
 #define NESP_HARBOR_KEY_MAX          64
+#define NESP_HARBOR_MAP_ROWS         0x12
+#define NESP_HARBOR_MAP_CODES        0x09
+#define NESP_HARBOR_MAP_RETRY_MS     60000
 #define NESP_WEATHER_ROWS            0x0D
 #define NESP_WEATHER_COLUMNS         28
 #define NESP_WEATHER_ZIP_LEN         5

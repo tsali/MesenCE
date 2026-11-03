@@ -15,6 +15,8 @@ cp "$SRC"/firmware/components/nesp_services/*.h "$DST"/ 2>/dev/null || true
 cp "$SRC"/firmware/components/nesp_services/include/*.h "$DST"/
 cp "$SRC"/build/nesp_proto.h "$DST"/
 cp "$SRC"/third_party/minimp3/minimp3.h "$DST"/
+cp "$SRC"/third_party/miniz/*.h "$SRC"/third_party/miniz/miniz_tinfl.c "$DST"/
+cp "$SRC"/third_party/miniz/LICENSE "$DST"/LICENSE.miniz
 cp "$SRC"/third_party/minimp3/LICENSE "$DST"/LICENSE.minimp3
 cp "$SRC"/LICENSE "$DST"/LICENSE.nesp32
 ( cd "$SRC" && git rev-parse HEAD ) > "$DST"/NESP32_COMMIT

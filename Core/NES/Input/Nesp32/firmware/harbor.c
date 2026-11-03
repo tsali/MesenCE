@@ -66,11 +66,26 @@
  *                        blank when it is 0 or not one
  *
  * all in capitals, digits, spaces and hyphens, as RADAR's are.
+ *
+ * The map (MAP and PAN) is land and water under the scope, made from
+ * OpenStreetMap's standard tiles. The scope's square, 144 points across,
+ * is 36 by 36 cells of four points, and a cell is water when most of its
+ * nine samples are OpenStreetMap's water colour, or the blue of a line it
+ * draws over the sea. A sample is a point
+ * of the scope put on the earth as the box asked of AISHub is: a degree of
+ * latitude is sixty miles, and a degree of longitude that less by the
+ * cosine of the middle's latitude. The tiles are of the largest zoom at
+ * which the square is on no more than two by two of them, and only those
+ * the samples are on are fetched, one after another. Each is read as it
+ * comes (png.c), a row at a time, and never held: a row with samples on
+ * it is counted into the cells, and the rest are passed over.
  */
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
+#include "nesp_png.h"
 #include "nesp_services.h"
 #include "scope.h"
 
@@ -296,6 +311,197 @@ void harbor_zip(nesp_radar_t *radar, const char *item, size_t len)
     }
     snprintf(radar->spot, sizeof(radar->spot), "%.7f %.7f", longitude, latitude);
     radar->spotted = true;
+}
+
+/* --- the map ------------------------------------------------------------------- */
+
+#define TILES "https://tile.openstreetmap.org/"
+#define CELLS (NESP_HARBOR_MAP_ROWS * 2)   /* across the scope, and down it */
+#define SAMPLES 3                   /* across a cell, and down it */
+#define LINE (CELLS * SAMPLES)
+#define TILE 256                    /* pixels across a tile, and down it */
+#define ZOOM_MAX 19                 /* OpenStreetMap's deepest */
+#define MERCATOR_MAX 85.0511287798  /* the latitude where the tiles end */
+/* OpenStreetMap's water (#aad3df), and how far from it a colour may be
+ * in each of red, green and blue and still be water. */
+#define WATER_RED 170
+#define WATER_GREEN 211
+#define WATER_BLUE 223
+#define NEAR 16
+/* And the lines OpenStreetMap draws over the sea, of boundaries and ferries:
+ * blue-grey and purple, blue the most by this much. Its land is never so. */
+#define BLUER 10
+
+/* The decoder's memory and what it has counted, asked of the hal the first
+ * time a map is made. */
+struct harbor_map_work {
+    nesp_png_t png;
+    uint8_t water[CELLS][CELLS];    /* samples of each cell that were water */
+    uint8_t seen[CELLS][CELLS];     /* and samples of it */
+};
+
+/* A sample's point on the scope, across it or down it: three in each cell,
+ * at a point from its sides and in its middle. */
+static double sample_point(unsigned sample)
+{
+    return 4.0 * (sample / SAMPLES) + 1.0 + sample % SAMPLES;
+}
+
+/* Where a longitude and a latitude are among all the tiles of a zoom, in
+ * pixels from the west and from the north. */
+static double world_x(double longitude, unsigned zoom)
+{
+    return (longitude + 180.0) / 360.0 * TILE * (double)(1ul << zoom);
+}
+
+static double world_y(double latitude, unsigned zoom)
+{
+    double radians = scope_radians(between(latitude, -MERCATOR_MAX, MERCATOR_MAX));
+    return (1.0 - asinh(tan(radians)) / PI) / 2.0 * TILE * (double)(1ul << zoom);
+}
+
+/* The tile a pixel is on, west and north of 0 too. */
+static int32_t tile_of(int32_t pixel)
+{
+    return pixel >= 0 ? pixel / TILE : -((TILE - 1 - pixel) / TILE);
+}
+
+/* A map of the place chosen, at its range: the zoom, the samples and the
+ * tiles. False if none can be made, near a pole or with no memory. */
+bool harbor_map_plan(nesp_radar_t *radar)
+{
+    if (radar->map_work == NULL) {
+        /* Kept: the fetch's task may be in the middle of it whenever this
+         * one would give it back. */
+        radar->map_work = radar->hal->alloc(radar->hal->ctx, sizeof(*radar->map_work));
+        if (radar->map_work == NULL) {
+            return false;
+        }
+        memset(radar->map_work, 0, sizeof(*radar->map_work));
+    }
+    double latitude = radar->map_latitude / 1e6, longitude = radar->map_longitude / 1e6;
+    double across = cos(scope_radians(latitude));
+    if (across <= 0.01) {
+        return false;
+    }
+    double north = radar->map_range / EDGE / 60.0;  /* degrees in a point */
+    double east = north / across;
+    unsigned zoom = ZOOM_MAX + 1;
+    int32_t span_x, span_y;
+    do {
+        zoom--;
+        span_x = tile_of((int32_t)floor(world_x(longitude + east * (LAST + 1 - MIDDLE), zoom)))
+                 - tile_of((int32_t)floor(world_x(longitude - east * MIDDLE, zoom)));
+        span_y = tile_of((int32_t)floor(world_y(latitude - north * (LAST + 1 - MIDDLE), zoom)))
+                 - tile_of((int32_t)floor(world_y(latitude + north * MIDDLE, zoom)));
+    } while (zoom > 0 && (span_x > 1 || span_y > 1));
+    if (span_x > 1) {
+        return false;               /* wider than the world */
+    }
+    int32_t bottom = (int32_t)(TILE << zoom) - 1;
+    for (unsigned sample = 0; sample < LINE; sample++) {
+        double point = sample_point(sample);
+        radar->map_x[sample] = (int32_t)floor(world_x(longitude + east * (point - MIDDLE), zoom));
+        int32_t y = (int32_t)floor(world_y(latitude - north * (point - MIDDLE), zoom));
+        radar->map_y[sample] = y < 0 ? 0 : y > bottom ? bottom : y;
+    }
+    radar->map_zoom = (uint8_t)zoom;
+    radar->map_tiles = 0;
+    for (int32_t y = tile_of(radar->map_y[0]); y <= tile_of(radar->map_y[LINE - 1]); y++) {
+        for (int32_t x = tile_of(radar->map_x[0]); x <= tile_of(radar->map_x[LINE - 1]); x++) {
+            radar->map_tile_at[radar->map_tiles][0] = x;
+            radar->map_tile_at[radar->map_tiles][1] = y;
+            radar->map_tiles++;
+        }
+    }
+    return true;
+}
+
+/* The address of the tile being fetched. One west of the first or east of
+ * the last is the world's other side's. */
+void harbor_map_url(const nesp_radar_t *radar, char *url, size_t size)
+{
+    long count = 1l << radar->map_zoom;
+    long x = ((radar->map_tile_at[radar->map_tile][0] % count) + count) % count;
+    snprintf(url, size, TILES "%u/%ld/%ld.png", (unsigned)radar->map_zoom, x,
+             (long)radar->map_tile_at[radar->map_tile][1]);
+}
+
+static bool is_water(const uint8_t *rgb)
+{
+    if (abs(rgb[0] - WATER_RED) <= NEAR && abs(rgb[1] - WATER_GREEN) <= NEAR
+        && abs(rgb[2] - WATER_BLUE) <= NEAR) {
+        return true;
+    }
+    return rgb[2] >= rgb[0] + BLUER && rgb[2] >= rgb[1] + BLUER;
+}
+
+/* A row of a tile: its samples, counted into their cells. */
+static void sampled(void *ctx, uint32_t y, const uint8_t *pixels)
+{
+    nesp_radar_t *radar = ctx;
+    struct harbor_map_work *work = radar->map_work;
+    uint8_t tile = radar->map_tile < radar->map_tiles ? radar->map_tile : 0;
+    int32_t west = radar->map_tile_at[tile][0] * TILE;
+    int32_t at = radar->map_tile_at[tile][1] * TILE + (int32_t)y;
+    for (unsigned down = 0; down < LINE && radar->map_y[down] <= at; down++) {
+        if (radar->map_y[down] != at) {
+            continue;
+        }
+        for (unsigned across = 0; across < LINE; across++) {
+            int32_t x = radar->map_x[across] - west;
+            if (x < 0 || x >= (int32_t)work->png.width) {
+                continue;
+            }
+            uint8_t rgb[3];
+            nesp_png_colour(&work->png, pixels, (uint32_t)x, rgb);
+            unsigned row = down / SAMPLES, column = across / SAMPLES;
+            work->seen[row][column]++;
+            work->water[row][column] = (uint8_t)(work->water[row][column] + is_water(rgb));
+        }
+    }
+}
+
+/* More of a tile. False: it is not one this reads, and no more is wanted. */
+bool harbor_map_body(nesp_radar_t *radar, uint32_t id, const uint8_t *data, size_t len)
+{
+    struct harbor_map_work *work = radar->map_work;
+    if (radar->map_parsing != id) {     /* the first of a new tile */
+        radar->map_parsing = id;
+        nesp_png_init(&work->png, sampled, radar);
+        if (radar->map_tile == 0) {
+            memset(work->water, 0, sizeof(work->water));
+            memset(work->seen, 0, sizeof(work->seen));
+        }
+    }
+    return nesp_png_feed(&work->png, data, len);
+}
+
+/* The tile has come whole, and was a tile. */
+bool harbor_map_whole(const nesp_radar_t *radar, uint32_t id)
+{
+    const nesp_png_t *png = &radar->map_work->png;
+    return radar->map_parsing == id && nesp_png_whole(png) && png->width == TILE
+           && png->height == TILE;
+}
+
+/* Every tile has come: the codes of the map, four cells to a tile of the
+ * console's, a set bit land. A cell no sample was on is water. */
+void harbor_map_codes(nesp_radar_t *radar)
+{
+    const struct harbor_map_work *work = radar->map_work;
+    memset(radar->map_codes, 0, sizeof(radar->map_codes));
+    for (unsigned row = 0; row < CELLS; row++) {
+        for (unsigned column = 0; column < CELLS; column++) {
+            if (work->water[row][column] * 2 > work->seen[row][column]
+                || work->seen[row][column] == 0) {
+                continue;
+            }
+            unsigned tile = column / 2;
+            unsigned bit = 1u << ((row % 2) * 2 + column % 2);
+            radar->map_codes[row / 2][tile / 2] |= (uint8_t)(tile % 2 == 0 ? bit << 4 : bit);
+        }
+    }
 }
 
 void nesp_harbor_service(nesp_service_t *service, nesp_harbor_t *harbor, const nesp_hal_t *hal)
