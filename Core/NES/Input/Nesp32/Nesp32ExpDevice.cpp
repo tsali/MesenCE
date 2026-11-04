@@ -28,7 +28,21 @@ Nesp32ExpDevice::~Nesp32ExpDevice()
 
 void Nesp32ExpDevice::PrintStats()
 {
-	if(!_stats || _statReplies == 0) {
+	if(!_stats || (_statReplies == 0 && _statBurstBytes == 0)) {
+		return;
+	}
+	if(_statBurstBytes > 0) {
+		//Bytes read in runs (reads under 64 cycles apart): the read loop's
+		//rate; and all of them over the time from the first to the last
+		double inRuns = _statBurstCycles / NESP_CPU_HZ;
+		double overall = (_statLastByte - _statFirstByte) / NESP_CPU_HZ;
+		fprintf(stderr, "[NESP32 EXP] turbo: %llu bytes; read at %.0f bytes/s (%.1f cycles a byte) in runs, %.0f bytes/s over the whole time\n",
+			(unsigned long long)_statBurstBytes,
+			inRuns > 0 ? _statBurstBytes / inRuns : 0.0,
+			_statBurstBytes ? _statBurstCycles / _statBurstBytes : 0.0,
+			overall > 0 ? _statBurstBytes / overall : 0.0);
+	}
+	if(_statReplies == 0) {
 		return;
 	}
 	//From each reply's first nibble taken to its last: the link's own rate
@@ -108,17 +122,58 @@ bool Nesp32ExpDevice::TxIdle()
 void Nesp32ExpDevice::TxReset()
 {
 	Drop();
+	_burst.clear();
+	_burstAt = 0;
 	Nesp32Device::TxReset();
+}
+
+//TURBO's burst: queued apart from the replies, from a moment after the
+//request (as a reply is), a byte every FeedCycles
+bool Nesp32ExpDevice::FastSend(const uint8_t* data, size_t len, bool first)
+{
+	if(first) {
+		_burst.clear();
+		_burstAt = 0;
+		_burstStart = (double)_now + Turnaround;
+	}
+	_burst.insert(_burst.end(), data, data + len);
+	return true;
+}
+
+uint8_t Nesp32ExpDevice::ReadByte(double now)
+{
+	if(_burstAt >= _burst.size() || _burstStart + _burstAt * FeedCycles > now) {
+		return 0; //nothing there yet: the board drives nothing
+	}
+	uint8_t value = _burst[_burstAt++];
+	_driven = 0xE0;
+	if(_stats) {
+		if(_statLastByte >= 0 && now - _statLastByte < 64) {
+			_statBurstCycles += now - _statLastByte;
+		} else {
+			_statBurstCycles += 8; //a run's first byte: a read's worth
+		}
+		if(_statFirstByte < 0) {
+			_statFirstByte = now;
+		}
+		_statLastByte = now;
+		_statBurstBytes++;
+	}
+	return value;
 }
 
 uint8_t Nesp32ExpDevice::ReadRam(uint16_t addr)
 {
+	_driven = 0;
 	if(addr != 0x4017) {
 		return 0;
 	}
 	uint64_t now = _emu->GetMasterClock();
 	Advance(now);
 	Flush(now);
+	if(_out2) {
+		return ReadByte((double)now);
+	}
 	//D0: the UART, as on the controller port (the '368 inverts it)
 	uint8_t value = (_wire.Level((double)now) ^ 1) & 0x01;
 	if(!_fifo.empty() && _fifo.front().Ready <= (double)now) {
@@ -160,5 +215,6 @@ void Nesp32ExpDevice::WriteRam(uint16_t addr, uint8_t value)
 		Drop();
 	}
 	_out1 = out1;
+	_out2 = (value & 0x04) != 0;
 	_tap.Write((double)now, value & 0x01);
 }

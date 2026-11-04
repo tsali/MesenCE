@@ -247,12 +247,19 @@ uint8_t NesControlManager::ReadRam(uint16_t addr)
 {
 	SetInputReadFlag();
 
-	uint8_t value = _console->GetMemoryManager()->GetOpenBus(GetOpenBusMask(addr - 0x4016));
+	uint8_t openBus = _console->GetMemoryManager()->GetOpenBus(GetOpenBusMask(addr - 0x4016));
+	uint8_t value = 0;
 	for(shared_ptr<BaseControlDevice>& device : _controlDevices) {
 		if(device->IsConnected()) {
 			value |= ReadDevice(device, addr);
+			//An NESP32 on the expansion port in its TURBO mode drives D5-D7
+			//itself (the NES-001's port has the data bus): no open bus there
+			if(Nesp32ExpDevice* nesp32 = dynamic_cast<Nesp32ExpDevice*>(device.get())) {
+				openBus &= ~nesp32->GetDrivenBits();
+			}
 		}
 	}
+	value |= openBus;
 
 	_prevReadAddr = addr;
 

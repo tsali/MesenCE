@@ -106,6 +106,7 @@ void Nesp32Device::SetupHal()
 	_hal.kbd_forget = nullptr;
 	_hal.kbd_read = nullptr;
 	_hal.setting = HalSetting;
+	_hal.fast_send = HalFastSend;
 }
 
 //A setting the console is never told, such as HARBOR's "aishub_key": from
@@ -394,6 +395,16 @@ bool Nesp32Device::TxIdle()
 void Nesp32Device::TxReset()
 {
 	_wire.Reset();
+}
+
+bool Nesp32Device::HalFastSend(void* ctx, const uint8_t* data, size_t len, bool first)
+{
+	return Self(ctx)->FastSend(data, len, first);
+}
+
+bool Nesp32Device::FastSend(const uint8_t*, size_t, bool)
+{
+	return false; //on controller port 2 there is only the UART
 }
 
 uint16_t Nesp32Device::HalTracks(void* ctx)

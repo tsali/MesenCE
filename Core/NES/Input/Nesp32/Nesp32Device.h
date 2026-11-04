@@ -112,6 +112,7 @@ private:
 	static bool HalFavoritesLast(void* ctx, nesp_bsky_favorites_t* out);
 	static bool HalSetting(void* ctx, const char* name, char* out, size_t max);
 	static void HalFavoritesKeep(void* ctx, const nesp_bsky_favorites_t* favorites);
+	static bool HalFastSend(void* ctx, const uint8_t* data, size_t len, bool first);
 
 protected:
 	string GetKeyNames() override { return "AB"; }
@@ -129,6 +130,11 @@ protected:
 	virtual size_t TxWaiting();
 	virtual bool TxIdle();
 	virtual void TxReset();
+
+	//The expansion port's fast way (the hal's fast_send, CAM's TURBO): bytes
+	//queued for the console to read a whole byte a read. The controller-port
+	//board has none.
+	virtual bool FastSend(const uint8_t* data, size_t len, bool first);
 
 	Nesp32Device(Emulator* emu, ControllerType type, uint8_t port, KeyMappingSet keyMappings);
 

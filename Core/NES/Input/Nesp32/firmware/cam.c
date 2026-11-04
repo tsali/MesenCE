@@ -28,6 +28,13 @@
  * finding nothing left to send). SMALL is the frame held at a quarter of
  * the size, made once for each frame held, when it is first asked for.
  *
+ * TURBO is for a board on the expansion port (the hal's fast_send): its
+ * reply is short, and the tiles go as a burst of bytes to the port's front
+ * end, which the console reads a whole byte a read, straight into its
+ * PPU. The burst ends with the console's TAG and its complement, which is
+ * all the console checks: a byte lost or not there in time moves them.
+ * While a console loads by TURBO the fetches come sooner (CAM_TURBO_MIN_MS).
+ *
  * There are two frames' worth of memory, and the base and the small frame
  * besides, asked of the hal when a console first watches, all or none,
  * and kept, as TUNER keeps its decoder's: the fetch's task
@@ -68,6 +75,7 @@
 #define SMALL_CHUNKS NESP_CAM_SMALL_CHUNKS
 #define SIDE 16                     /* tiles across a frame */
 #define SMALL_SIDE 8                /* and across a small one */
+#define TURBO_HEAD 4                /* STATE, SERIAL, FROM, COUNT */
 #define SETTING "nescam_url"
 #define AGENT "nesp32-cam/0.1 (NES Cam on a nesp32; +https://github.com/Armitage64/nesp32)"
 
@@ -322,6 +330,7 @@ static void drop(nesp_cam_t *cam)
     cam->no_memory = false;
     cam->asked = false;
     cam->chunked = false;
+    cam->turbo = false;
 }
 
 static bool tick(void *ctx, uint32_t now_ms)
@@ -360,7 +369,8 @@ static bool tick(void *ctx, uint32_t now_ms)
         || !online(cam)) {
         return false;
     }
-    uint32_t pause = cam->failed || !cam->sourced ? NESP_CAM_RETRY_MS : NESP_CAM_MIN_MS;
+    uint32_t pause = cam->failed || !cam->sourced ? NESP_CAM_RETRY_MS
+                     : cam->turbo ? NESP_CAM_TURBO_MIN_MS : NESP_CAM_MIN_MS;
     if (!cam->fetched || now_ms - cam->fetch_at >= pause) {
         fetch(cam, now_ms);
     }
@@ -553,9 +563,66 @@ static void small(nesp_cam_t *cam, const nesp_request_t *request, nesp_reply_t *
     }
 }
 
+/* WANT, FROM, COUNT, LIMIT, TAG: COUNT tiles of the frame held from FROM,
+ * as a burst on the fast way, and a reply that says which. A WANT that is
+ * not the frame held is given that one from its first tile; a FROM at or
+ * past LIMIT of the frame held has nothing to send (the console has it
+ * whole, and is waiting for the next). Like WATCH, it begins the watching. */
+static void turbo(nesp_cam_t *cam, const nesp_request_t *request, nesp_reply_t *reply)
+{
+    if (request->len != 5 || request->data[2] == 0) {
+        reply->status = NESP_ST_BAD_ARG;
+        return;
+    }
+    reply->once = true;
+    if (!cam->watching) {
+        begin_watching(cam);
+    }
+    cam->asked = true;
+    reply->data[0] = state(cam);
+    reply->data[1] = held_serial(cam);
+    reply->len = 2;
+    if (cam->hal->fast_send == NULL) {
+        reply->data[0] = NESP_CAM_NO_PORT;
+        return;
+    }
+    if (!cam->holding) {
+        return;
+    }
+    uint8_t want = request->data[0];
+    unsigned from = request->data[1];
+    unsigned count = request->data[2];
+    unsigned limit = request->data[3] == 0 ? TILES : request->data[3];
+    uint8_t tag = request->data[4];
+    if (want != cam->serial) {
+        from = 0;                   /* the frame held, from its start */
+    } else if (from >= limit) {
+        keep(cam);                  /* the console holds it whole */
+        return;
+    }
+    if (count > limit - from) {
+        count = limit - from;
+    }
+    const uint8_t tail[2] = {tag, (uint8_t)~tag};
+    const uint8_t *now = cam->frames[cam->held] + (size_t)from * TILE;
+    if (!cam->hal->fast_send(cam->hal->ctx, now, (size_t)count * TILE, true)
+        || !cam->hal->fast_send(cam->hal->ctx, tail, sizeof(tail), false)) {
+        reply->data[0] = NESP_CAM_NO_PORT;
+        return;
+    }
+    reply->data[2] = (uint8_t)from;
+    reply->data[3] = (uint8_t)count;
+    reply->len = TURBO_HEAD;
+    cam->chunked = true;
+    if (from + count >= limit) {
+        keep(cam);                  /* with these the console holds it whole */
+    }
+}
+
 static void handle(void *ctx, const nesp_request_t *request, nesp_reply_t *reply)
 {
     nesp_cam_t *cam = ctx;
+    cam->turbo = request->op == NESP_CAM_TURBO;     /* the pace is the last op's */
     switch (request->op) {
     case NESP_CAM_WATCH:
         watch(cam, request, reply);
@@ -568,6 +635,9 @@ static void handle(void *ctx, const nesp_request_t *request, nesp_reply_t *reply
         break;
     case NESP_CAM_SMALL:
         small(cam, request, reply);
+        break;
+    case NESP_CAM_TURBO:
+        turbo(cam, request, reply);
         break;
     default:
         reply->status = NESP_ST_NO_OP;

@@ -124,6 +124,7 @@
 #define NESP_CAM_CHUNK               0x01
 #define NESP_CAM_TILES               0x02
 #define NESP_CAM_SMALL               0x03
+#define NESP_CAM_TURBO               0x04
 #define NESP_WIFI_NONE               0x00
 #define NESP_WIFI_IDLE               0x01
 #define NESP_WIFI_JOINING            0x02
@@ -171,6 +172,7 @@
 #define NESP_CAM_WAITING             0x03
 #define NESP_CAM_READY               0x04
 #define NESP_CAM_FAILED              0x05
+#define NESP_CAM_NO_PORT             0x06
 #define NESP_RUN_IDLE                0x00
 #define NESP_RUN_ARMED               0x01
 #define NESP_RUN_RUNNING             0x02
@@ -348,6 +350,7 @@
 #define NESP_CAM_SMALL_CHUNKS        0x10
 #define NESP_CAM_URL_MAX             255
 #define NESP_CAM_MIN_MS              100
+#define NESP_CAM_TURBO_MIN_MS        20
 #define NESP_CAM_RETRY_MS            1000
 #define NESP_CAM_STALL_MS            1000
 #define NESP_CAM_UNASKED_MS          5000

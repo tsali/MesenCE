@@ -244,6 +244,12 @@ typedef struct {
      * written to out with a 0 after it, max counting the 0. False: it is not
      * set, or does not fit. */
     bool (*setting)(void *ctx, const char *name, char *out, size_t max);
+    /* Optional: a board on the expansion port, whose front end can give the
+     * console a whole byte a read of $4017 while OUT2 is up (CAM's TURBO).
+     * The bytes are queued there for the console to read when it is ready;
+     * first: they begin a new burst, and what was left of the last is
+     * dropped. False, or NULL: the board has no such way. */
+    bool (*fast_send)(void *ctx, const uint8_t *data, size_t len, bool first);
 } nesp_hal_t;
 
 /* A stream of bytes over datagrams (arq.c): what a port needs to carry
@@ -927,6 +933,7 @@ typedef struct {
     bool waiting;                   /* the other is a whole frame, not yet held */
     bool finished;                  /* the console has had the one held to its last chunk */
     bool chunked;                   /* it has asked for a chunk of it since the last tick */
+    bool turbo;                     /* it loads frames by TURBO: fetch them sooner */
     uint32_t chunk_at;              /* when it last did, or when the frame was held */
     bool watched;                   /* a console has asked since the hello */
     bool watching;                  /* and has not stopped asking */
